@@ -870,11 +870,87 @@ public static class UiSmokeTest
                     string pls = rs("PLAN SMALL"); if (!pls.Contains("5 micros") || !pls.Contains("(105.00 pts)") || !pls.Contains("ONE TRADE A DAY (eval + funded")) throw new Exception("💡 SMALL 1-A-DAY: " + pls);
                     string pl = rs("PLAN BOLD"); if (!pl.Contains("10 micros") || !pl.Contains("(50.00 pts") || !pl.Contains("(52.50 pts)") || !pl.Contains("ONE TRADE A DAY (eval + funded") || !pl.Contains("payout as soon as allowed") || !pl.Contains("a payout locks the floor")) throw new Exception("💡 BOLD 1-A-DAY: " + pl);
                     string run2 = rs("RUN"); if (!run2.Contains("✓ ▶ RUN")) throw new Exception("🎯 RUN (BOLD 1-A-DAY): " + run2);
+                    string po = rs("PLAN OVN"); if (!po.Contains("5 micros") || !po.Contains("setups FVG,AGG") || !po.Contains("OVERNIGHT side only") || !po.Contains("SKIP WILD")) throw new Exception("💡 3 SETUPS + OVERNIGHT: " + po);
+                    string run3 = rs("RUN"); if (!run3.Contains("✓ ▶ RUN") || !run3.Contains("📥")) throw new Exception("🎯 RUN (OVERNIGHT preset + the library line): " + run3);
                     var runs = System.IO.Path.Combine(sf, "TriRotation", "runs.csv"); if (!System.IO.File.Exists(runs) || System.IO.File.ReadAllLines(runs).Length < 4) throw new Exception("💾 TriRotation\\runs.csv missing / short");
                     if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 the 3 SETUPS layer / drawer built a NinjaBroker");
                     showD("TRIROT"); bt.Close();
                     Console.WriteLine("      🎯 " + run.Substring(0, Math.Min(150, run.Length)) + " · " + rd.Substring(0, Math.Min(120, rd.Length)) + " · runs " + (System.IO.File.ReadAllLines(runs).Length - 1) + " · NinjaBroker built 0 · nothing sent: OK");
                 });
+            if (strategy == "MAD")
+            {
+                Step("📥 BUILD 11s: TICK LIBRARY window — ⬇ DOWNLOAD day by day (stand-in NinjaTrader: a failed day retried, a 1-second day, a no-session day, the weekend never asked), the calendar, ✔ CHECK, ↻ REPAIR, 📦 EXPORT, NOTHING sent", () =>
+                {
+                    var BF = BindingFlags.Instance | BindingFlags.NonPublic; Func<string, object> F = n => lab2.GetType().GetField(n, BF).GetValue(lab2);
+                    var nbMade = lab2.GetType().GetNestedType("NinjaBroker", BindingFlags.NonPublic).GetField("Made", BindingFlags.Static | BindingFlags.Public); int made0 = (int)nbMade.GetValue(null);
+                    string sf = (string)lab2.GetType().GetMethod("StudioFolder", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, null);
+                    try { System.IO.Directory.Delete(System.IO.Path.Combine(sf, "TickCache", "MES"), true); } catch { }
+                    int fails = 0; var asked = new List<DateTime>();
+                    Set(lab2, "tickLibFetchFake", (Func<string, DateTime, DateTime, Tuple<List<KeystoneOfTick>, string>>)((sym, a, z) =>
+                    {
+                        var dz = z.Date; asked.Add(dz);
+                        if (dz == new DateTime(2019, 3, 6) && fails++ == 0) return Tuple.Create(new List<KeystoneOfTick>(), "Timeout");
+                        if (dz == new DateTime(2019, 3, 8) || dz == new DateTime(2019, 3, 13)) return Tuple.Create(new List<KeystoneOfTick>(), "");
+                        var l = new List<KeystoneOfTick>(); for (int i = 0; i < 3000; i++) l.Add(new KeystoneOfTick { Time = a.AddSeconds(5 + i * 25), Price = 7000 + (i % 7) * 0.25, Size = 1, Side = i % 2 == 0 ? 1 : -1, Quoted = i % 50 != 0 }); return Tuple.Create(l, "");
+                    }));
+                    Set(lab2, "tickLibSecondsFake", (Func<string, DateTime, DateTime, List<KeystoneArcBar>>)((sym, a, z) => z.Date == new DateTime(2019, 3, 8) ? Enumerable.Range(1, 600).Select(k => new KeystoneArcBar { Time = z.Date.AddHours(9).AddSeconds(k), Open = 7000, High = 7000.5, Low = 6999.75, Close = 7000.25, Volume = 3 }).ToList() : new List<KeystoneArcBar>()));
+                    lab2.GetType().GetMethod("OpenTickLibrary", BF).Invoke(lab2, new object[] { null, "MES" });
+                    var tw = (System.Windows.Window)F("tickLibWindow"); var cmd = (Func<string, string>)F("tickLibCmd"); if (tw == null || cmd == null) throw new Exception("📥 the TICK LIBRARY window did not open");
+                    foreach (var need in new[] { "tlib.download", "tlib.pause", "tlib.check", "tlib.repair", "tlib.delete", "tlib.export", "tlib.calendar", "tlib.list", "tlib.progress", "tlib.secs" }) if (FindAll<System.Windows.FrameworkElement>(tw.Content).All(x => Convert.ToString(x.Tag) != need)) throw new Exception("📥 missing: " + need);
+                    cmd("SET sym=MES;from=2019-03-04;to=2019-03-15"); string rD = cmd("DOWNLOAD");
+                    if (!rD.Contains("day 10 / 10") || !rD.Contains("bid/ask 98 %") || !rD.Contains("1 no session") || !rD.Contains("1 1-second only")) throw new Exception("📥 progress: " + rD);
+                    if (asked.Any(d => d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday) || asked.Count(d => d == new DateTime(2019, 3, 6)) != 2) throw new Exception("📥 asked: " + string.Join(",", asked.Select(d => d.ToString("MM-dd"))));
+                    string st = cmd("STATUS");
+                    foreach (var need in new[] { "03-04=COMPLETE", "03-06=COMPLETE", "03-08=SECONDS", "03-13=NOSESSION", "03-09=NOSESSION", "03-15=COMPLETE" }) if (!st.Contains(need)) throw new Exception("📥 calendar: " + st);
+                    if (FindAll<System.Windows.FrameworkElement>(tw.Content).All(x => Convert.ToString(x.Tag) != "tlib.day.2019-03-04.COMPLETE")) throw new Exception("📥 no green calendar cell for 03-04");
+                    asked.Clear(); string r2 = cmd("DOWNLOAD"); if (!r2.Contains("already there") || asked.Count != 0) throw new Exception("📥 a second DOWNLOAD asked again: " + r2);
+                    string rp = cmd("REPAIR"); if (asked.Count != 1 || asked[0] != new DateTime(2019, 3, 8)) throw new Exception("📥 REPAIR asked: " + string.Join(",", asked.Select(d => d.ToString("MM-dd"))) + " • " + rp);
+                    string ck = cmd("CHECK"); if (!ck.Contains("✔")) throw new Exception("📥 CHECK: " + ck);
+                    string ex = cmd("EXPORT"); var zf = System.IO.Path.Combine(sf, "exports", "ticks", "ticks-MES-2019-03.zip");
+                    if (!ex.Contains("1 zip(s)") || !System.IO.File.Exists(zf) || !KeystoneZip.Read(zf).ContainsKey("MES/2019-03-04.csv.gz") || KeystoneZip.Read(zf).ContainsKey("MES/2019-03-08.csv.gz")) throw new Exception("📥 EXPORT: " + ex);
+                    string sr; var rt = KeystoneTickCache.Load(sf, "MES", new DateTime(2019, 3, 4), out sr); if (rt == null || rt.Count != 3000 || sr != "TICKS") throw new Exception("📥 the replay does not load the library day");
+                    KeystoneTickDay mt; if (KeystoneTickLib.OrderFlowTicks(sf, "MES", new DateTime(2019, 3, 8), out mt) != null) throw new Exception("🛡 a 1-second day became order flow");
+                    if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 the TICK LIBRARY built a NinjaBroker");
+                    Set(lab2, "tickLibFetchFake", null); Set(lab2, "tickLibSecondsFake", null); tw.Close(); if (F("tickLibWindow") != null) throw new Exception("📥 the window did not close");
+                    Console.WriteLine("      📥 " + rD.Split('|')[0].Trim() + " · " + st.Split(';').Length + " days on the calendar · ↻ REPAIR re-asked 03-08 only · 📦 " + System.IO.Path.GetFileName(zf) + " · NinjaBroker built 0 · nothing sent: OK");
+                });
+                Step("🎯 BUILD 11s: the all-in-one ORDERFLOW desk — badge (grey with no trades, green bid / ask, amber tick rule), the numbers strip, Δ profile, the SIGNAL card (FILL ORDER fills the panel only, TAKE = the chart's own BUY), the 5 tabs, NOTHING sent to NinjaTrader", () =>
+                {
+                    var BF = BindingFlags.Instance | BindingFlags.NonPublic; Func<string, object> F = n => lab2.GetType().GetField(n, BF).GetValue(lab2);
+                    var nbMade = lab2.GetType().GetNestedType("NinjaBroker", BindingFlags.NonPublic).GetField("Made", BindingFlags.Static | BindingFlags.Public); int made0 = (int)nbMade.GetValue(null);
+                    Call(lab2, "OpenReplayTrader"); var bt = (System.Windows.Window)F("backtestStudioWindow"); if (bt == null) throw new Exception("no BACKTEST STUDIO");
+                    { var tbar = FindAll<System.Windows.FrameworkElement>(bt.Content).First(x => Convert.ToString(x.Tag) == "studio.toolbar"); var dbx = FindAll<System.Windows.Controls.TextBox>(tbar).First(); dbx.Text = "2019-03-06"; }
+                    ((Action)F("replayTraderLoad"))(); var rt = (KeystoneReplayTrader)F("replayTrader"); if (rt == null || rt.Bars.Count == 0) throw new Exception("no day loaded");
+                    for (int k = 0; k < 150; k++) ((Action<int>)F("replayTraderStep"))(1);
+                    { var na = (Action<double>)F("replayTraderNewAccount"); if (na != null) na(50000); ((Action<int>)F("replayTraderStep"))(0); }
+                    var desk = (Func<string, string>)F("studioOfDesk"); if (desk == null) throw new Exception("no ORDERFLOW desk hook");
+                    if (desk("OPEN") != "OPEN") throw new Exception("the ORDERFLOW view did not open");
+                    string nb = desk("NOTICKS"); string strip0 = desk("STRIP");
+                    if (nb != KeystoneOfSource.NoneText || !strip0.Contains(KeystoneOfSource.NoneText) || !strip0.Contains("CANDLE Δ") || !strip0.Contains("—")) throw new Exception("🛡 no trades must show the grey badge and no numbers: " + strip0);
+                    if (FindAll<System.Windows.FrameworkElement>(bt.Content).Any(x => Convert.ToString(x.Tag) == "of.dprof")) throw new Exception("🛡 a delta profile without trades");
+                    string amber = desk("TICKS 6000 0"); if (!amber.StartsWith("● REAL TICKS • tick rule")) throw new Exception("amber badge: " + amber);
+                    string green = desk("TICKS 6000 0.97"); if (!green.StartsWith("● REAL TICKS • bid/ask 9")) throw new Exception("green badge: " + green);
+                    string strip = desk("STRIP"); if (!strip.Contains("● REAL TICKS • bid/ask") || !strip.Contains("BUYERS") || !strip.Contains("IN CONTROL")) throw new Exception("strip: " + strip);
+                    if (FindAll<System.Windows.FrameworkElement>(bt.Content).Count(x => Convert.ToString(x.Tag) == "of.profs" || Convert.ToString(x.Tag) == "of.ticklib") != 2) throw new Exception("▥ PROFILES / 📥 TICK LIBRARY buttons missing in the ORDERFLOW bar");
+                    if (FindAll<System.Windows.FrameworkElement>(bt.Content).All(x => Convert.ToString(x.Tag) != "of.dprof")) throw new Exception("no Δ DELTA PROFILE drawn by the price axis");
+                    desk("SIGNAL"); string card = desk("CARD");
+                    if (!card.StartsWith("VISIBLE") || !card.Contains("▲ BUY") || !card.Contains("STOP ") || !card.Contains("TARGET ") || !card.Contains("SIZE ") || !card.Contains("stacked buying zone")) throw new Exception("🎯 SIGNAL card: " + card);
+                    int pos0 = rt.Position; string fill = desk("FILL"); var fp = fill.Split('|'); double v1, v2, v3;
+                    if (fp.Length != 3 || !double.TryParse(fp[0], out v1) || !double.TryParse(fp[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v2) || !double.TryParse(fp[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v3) || v1 < 1 || v2 <= 0 || v3 <= 0 || rt.Position != pos0) throw new Exception("FILL ORDER: " + fill + " position " + rt.Position);
+                    foreach (var tb in new[] { Tuple.Create("FLOW", "FUEL vs ENGINE"), Tuple.Create("BOOK", "only LIVE"), Tuple.Create("STATS", "HOW OFTEN EACH SIGNAL WORKED"), Tuple.Create("GUIDE", "ABSORPTION"), Tuple.Create("SIGNAL", "TRADE FROM HERE") })
+                    { string tx = desk("TAB " + tb.Item1); if (!tx.Contains(tb.Item2)) throw new Exception("tab " + tb.Item1 + ": " + tx.Substring(0, Math.Min(300, tx.Length))); }
+                    string guide = desk("TAB GUIDE"); foreach (var g in new[] { "DELTA", "POC", "HVN / LVN", "DIVERGENCE", "STACKED IMBALANCES", "FUEL vs ENGINE" }) if (!guide.Contains(g)) throw new Exception("ⓘ GUIDE misses " + g);
+                    desk("TAB SIGNAL");
+                    System.Windows.MessageBox.Answer = (t, b) => System.Windows.MessageBoxResult.Yes;
+                    string take; try { take = desk("TAKE"); } finally { System.Windows.MessageBox.Answer = null; }
+                    if (!take.Contains("view CHART") || rt.Position <= 0) throw new Exception("TAKE (the chart's own BUY on the simulated trader): " + take);
+                    ((Action)F("replayTraderFlat"))();
+                    if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 the ORDERFLOW desk built a NinjaBroker");
+                    desk("OPEN"); desk("SIGNAL"); if (desk("SKIP") != "HIDDEN") throw new Exception("SKIP did not hide the card"); desk("CLOSE");
+                    bt.Close();
+                    Console.WriteLine("      🎯 badges: " + KeystoneOfSource.NoneText + " / " + amber.Split('•')[0] + "tick rule / " + green.Split('•').Take(2).Aggregate((a, b) => a + "•" + b) + " · card: " + card.Split('|')[1].Trim() + " · FILL " + fill + " · TAKE → " + take + " · NinjaBroker built 0: OK");
+                });
+            }
             Step(strategy + ": " + ev2.Count + " setups • open evidence chart + draw", () =>
             {
                 Call(lab2, "OpenEvidenceChart"); Call(lab2, "RequestEvidenceBars"); Call(lab2, "RenderEvidenceChart");

@@ -6808,7 +6808,7 @@ namespace NinjaTrader.NinjaScript
             for (var d = from.Date; d <= to.Date && d <= today.Date; d = d.AddDays(1))
             {
                 if (!KeystoneTickLib.IsSessionDay(d)) continue; var m = info(d);
-                bool want = repair ? (m.Status == "PARTIAL" || m.Status == "SECONDS" || m.Version == 1) && !(m.Status == "PARTIAL" && d == today.Date && m.Live && m.Version == 0) : m.Status != "COMPLETE" && m.Status != "NOSESSION";
+                bool want = repair ? (m.Status == "PARTIAL" || m.Status == "SECONDS" || m.Version == 1) && !(m.Status == "PARTIAL" && d == today.Date && m.Live && m.Version == 0) : m.Status != "COMPLETE" && m.Status != "NOSESSION" && m.Status != "SECONDS";   // a 1-second-only day: ↻ REPAIR asks it again
                 if (repair && m.Status == "PARTIAL" && d >= today.Date) want = false;   // today is still trading: repaired after it closes
                 if (want) p.Days.Add(d); else p.Skipped++;
             }
@@ -8998,6 +8998,47 @@ namespace NinjaTrader.NinjaScript
             long bb = 0, sl = 0; for (int i = Math.Max(0, c - 4); i <= c; i++) { bb += fps[i].Buy; sl += fps[i].Sell; }
             if (bb + sl > 0) { double sh = 100.0 * bb / (bb + sl); add("BUYERS (5 candles)", sh.ToString("0", IC) + "% bought • " + (100 - sh).ToString("0", IC) + "% sold", sh >= 55 ? 1 : sh <= 45 ? -1 : 0); }
             return res;
+        }
+    }
+    // 🎯 BUILD 11s — the ORDERFLOW desk's SIGNAL card (display only: it fills the order panel or goes through the chart's own BUY / SELL): the STOP just beyond the
+    // level the signal defended (its side's stacked imbalance zone in the signal candle or the 2 before, else the signal candle's low / high) + 2 ticks, the TARGET at
+    // the next volume node the trade's way at least 1 R away (a thick row HVN, then the POC / VAH / VAL), else the plan's bracket; the size from the $ risk
+    public sealed class KeystoneOfPlan { public int Dir, Qty; public double Entry, Stop, Target, StopPts, TargetPts, RiskUsd, RewardUsd; public string Level = "", TargetWhy = ""; }
+    public static class KeystoneOfDesk
+    {
+        // ⛽ FUEL vs ENGINE over the last candles: the fuel = the aggressive orders (the cumulative delta change), the engine = where the price went (ticks)
+        // → +1 / −1 / 0 and the words (agree = a healthy move; fuel without engine = absorbed; engine without fuel = a thin move that can snap back)
+        public static Tuple<int, string> FuelEngine(long deltaChange, double priceTicks, long volume)
+        {
+            var IC = CultureInfo.InvariantCulture; string d = (deltaChange > 0 ? "+" : deltaChange < 0 ? "−" : "") + Math.Abs(deltaChange).ToString("N0", IC), p = (priceTicks > 0 ? "+" : priceTicks < 0 ? "−" : "") + Math.Abs(priceTicks).ToString("0", IC) + " ticks";
+            bool fuel = volume > 0 && Math.Abs(deltaChange) * 10 >= volume, engine = Math.Abs(priceTicks) >= 4;
+            if (!fuel && !engine) return Tuple.Create(0, "idle — little aggression (Δ " + d + ") and the price barely moves (" + p + "): no story yet");
+            if (fuel && engine && Math.Sign(deltaChange) == Math.Sign(priceTicks)) return Tuple.Create(Math.Sign(priceTicks), "🚀 fuel and engine AGREE — " + (deltaChange > 0 ? "buyers" : "sellers") + " spend (Δ " + d + ") and the price follows (" + p + "): a healthy move");
+            if (fuel && (!engine || Math.Sign(deltaChange) != Math.Sign(priceTicks))) return Tuple.Create(-Math.Sign(deltaChange), "⛽ fuel WITHOUT engine — " + (deltaChange > 0 ? "buyers" : "sellers") + " spend (Δ " + d + ") but the price does not follow (" + p + "): they are being ABSORBED — watch for a turn " + (deltaChange > 0 ? "down" : "up"));
+            return Tuple.Create(0, "🛞 engine WITHOUT fuel — the price moves (" + p + ") on little aggression (Δ " + d + "): a thin move / stops being run, it can snap back");
+        }
+        public static KeystoneOfPlan Plan(KeystoneOfSignal sg, List<KeystoneFootprint> fps, KeystoneProfile prof, double price, double tick, double pointValue, double riskUsd, int planTgtTicks, int bufferTicks)
+        {
+            if (sg == null || fps == null || sg.Bar < 0 || sg.Bar >= fps.Count || tick <= 0 || price <= 0 || sg.Dir == 0) return null;
+            int dir = sg.Dir; double level = double.NaN; string why = "";
+            for (int i = Math.Max(0, sg.Bar - 2); i <= sg.Bar; i++) foreach (var st in fps[i].Stacks) if (st.Side == dir) { double v = dir > 0 ? st.Lo : st.Hi; if (dir > 0 ? v < price : v > price) level = double.IsNaN(level) ? v : dir > 0 ? Math.Min(level, v) : Math.Max(level, v); }
+            if (!double.IsNaN(level)) why = "the stacked " + (dir > 0 ? "buying" : "selling") + " zone " + level.ToString("0.00", CultureInfo.InvariantCulture);
+            var f = fps[sg.Bar];
+            if (double.IsNaN(level) && !f.Empty) { double v = dir > 0 ? f.Low : f.High; if (dir > 0 ? v < price : v > price) { level = v; why = "the signal candle's " + (dir > 0 ? "low " : "high ") + v.ToString("0.00", CultureInfo.InvariantCulture); } }
+            if (double.IsNaN(level)) return null;   // the price already went through the defended level: no plan
+            Func<double, double> rt = x => Math.Round(x / tick) * tick;
+            double stop = rt(level - dir * bufferTicks * tick), risk = dir * (price - stop); if (risk < 2 * tick) { stop = rt(price - dir * 2 * tick); risk = dir * (price - stop); }
+            double target = double.NaN; string tw = "";
+            if (prof != null)
+            {
+                var nodes = new List<Tuple<double, string>>(); foreach (var h in prof.Hvn) nodes.Add(Tuple.Create(h, "the next thick volume row (HVN) ")); 
+                if (!double.IsNaN(prof.Poc)) nodes.Add(Tuple.Create(prof.Poc, "the POC ")); if (!double.IsNaN(prof.Vah)) nodes.Add(Tuple.Create(prof.Vah, "the VAH ")); if (!double.IsNaN(prof.Val)) nodes.Add(Tuple.Create(prof.Val, "the VAL "));
+                var best = nodes.Where(n => dir * (n.Item1 - price) >= risk - 1e-9).OrderBy(n => dir * (n.Item1 - price)).FirstOrDefault();
+                if (best != null) { target = rt(best.Item1); tw = best.Item2 + target.ToString("0.00", CultureInfo.InvariantCulture); }
+            }
+            if (double.IsNaN(target)) { target = rt(price + dir * Math.Max(1, planTgtTicks) * tick); tw = "the plan's bracket (+" + planTgtTicks + " ticks) — no volume node ≥ 1 R away"; }
+            int qty = Math.Max(1, (int)Math.Floor(riskUsd / Math.Max(1e-9, risk * pointValue) + 1e-9));
+            return new KeystoneOfPlan { Dir = dir, Qty = qty, Entry = price, Stop = stop, Target = target, StopPts = risk, TargetPts = dir * (target - price), RiskUsd = risk * pointValue * qty, RewardUsd = dir * (target - price) * pointValue * qty, Level = why, TargetWhy = tw };
         }
     }
     // 📒 ORDER FLOW SETUP JOURNAL: every confirmed setup once it is decided (target or stop hit), one line each in
@@ -22032,7 +22073,7 @@ namespace NinjaTrader.NinjaScript
                 }
                 if (s.AtrSkipTop > 0)
                 {
-                    int fi; if (fiveAt.TryGetValue(c.Signal, out fi)) { double a = AtrAt(d, fi, s.AtrLen), line = AtrLine(atrS, order, c.Day, s.AtrSkipTop, Math.Max(1, s.AtrSkipSessions)); if (!double.IsNaN(line) && a >= line - 1e-12) continue; }
+                    int fi; if (fiveAt.TryGetValue(c.Signal, out fi)) { double a = AtrAt(d, fi, s.AtrLen), line = AtrLine(atrS, order, c.Day, s.AtrSkipTop, Math.Max(1, s.AtrSkipSessions)); if (!double.IsNaN(line) && a > line + 1e-9) continue; }
                 }
                 keep.Add(c);
             }
@@ -22745,7 +22786,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly string KeystoneBuildShort = KeystoneBuild.Split('•')[0].Trim();   // always the newest label (it was a separate, forgotten constant)
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
         private static string flatAlertedKey = "";   // the firm close-time alarm sounds once a day per account
-        private const string KeystoneBuild = "BUILD 2026-11-11r • 💡 BOLD / SMALL 1-A-DAY presets (one trade per account per day, ~1:1 wide bracket), Lucid payout locks the floor, payout hold, bracket re-priced for every trade • BUILD 2026-11-11q • funded trailing peak = the firm's liquidation value (closing commission), ✎ SYNC with Tradovate, EXECUTIONS fees from NinjaTrader • BUILD 2026-11-11p • 🎯 3 SETUPS: indicator layer, studio 3-SETUP ROTATION drawer, practice tickets, ROTATE guided source • BUILD 2026-11-11o • 🎯 3-SETUP ROTATION engine + study (FVG 50 % / aggression break / 123 engulfing, 30-account rotation, Lucid Flex 50K) • BUILD 2026-11-11n • LIVE TRADING: the account boxes fixed in their own row above the chart (bigger, never move / hide, kept in FULL CHART) + the account in words (firm • FUNDED / EVALUATION • trailing drawdown) + the bottom tab bar shrinks to fit • BUILD 2026-11-11m • entry marker: a small tick beside the candle (no big arrow / glow over the entry candle) • BUILD 2026-11-11l • 🧮 header TILES (balance, open, peak + time, floor $ + price + ▲ flash, room + drain bar, to lock / target + progress, the position) — each number once · 🆓 MANUAL practice (no rules) · 📊 ATTEMPTS tracker (summary, every attempt, its trades, ▶ jump, export, clear) · 🏷 gutter labels include the position / TP / SL (PEAK near the entry rides on it) · 🧠 ENTRY ANALYZER + 🧠 ENTRY SCORE (walk-forward, calibrated, says when there is no edge) • BUILD 2026-11-11k • 🔄 ROTATION SIM in the Backtest Studio (non-stop TP / SL brackets to the TPT lock or the blow: B / S patterns or rules, real ticks or the minute path with the reliability flag, ONE account + replay with FLOOR / PEAK / LOCK, 👥 POOL, 📊 ANALYZER + the no-edge maths, 🏆 FIND OPTIMAL checked on both halves, 💾 runs saved / reopened / compared) · 🖥 the chart first (drawers overlay it, one practice strip, the trailing numbers in the order column, FLOOR / LOCK / PEAK only, gutter labels never overlap) · 🔁 AUTO NEW ATTEMPT after a pass / lock / blow (on) · 📚 trailing-drawdown presets from the firm book + ＋ SAVE AS PRESET · 📼 LIVE DEMO history (saved + NinjaTrader, 5 / 30 / 90 / 365 days) • BUILD 2026-11-11j • ● LIVE DEMO in the Backtest Studio (real-time data, simulated fills, full prop practice) · several studios open at once · 🎯 PROP PRACTICE button in LIVE TRADING · 📐 the trailing-drawdown view (solid FLOOR / dotted PEAK / LOCK lines, the red room band, ▲ floor moved, the big panel: room $ + pts, peak, given back, to lock, balance) · 🎯 LOCK RACE preset (MNQ 5 … 60, 10 by default @ 9:30 with the 60-min trend; TP $2,000 / $1,000, SL floor / $1,000 / $500 / $250, BE at 75 %, the next trade aims for what is missing) • BUILD 2026-11-11i • 🔒 NinjaTrader Lockout recognised (entries refused, autopilot blocked) · 🎯 REVERSAL FVG scanner (signals only, ★ high volume, forward log) · 🎮 Sim101 listed · 🎯 live Sim101 prop practice · JJ removed • BUILD 2026-11-11h • TP / SL drag: the entry fades and can't be grabbed while dragging, a live points / $ label on the line, the order changes only on release • BUILD 2026-11-11g • 🤖 LIVE AUTOPILOT: GUIDED (flashing bracket, one press) for every firm, AUTO for Lucid / Tradeify only after ARM + typed START, through the armed links + limits • BUILD 2026-11-11f • defaults: ALL AT ONCE 2:00 + SPRINT 0 · 👥 owners (me / wife, 5 per firm each) · time presets · JJ strategy (practice) • BUILD 2026-11-11e • ● LIVE: only your active accounts (TPT eval / funded detected right, real balances, nicknames), groups + plan per group, CONFIRM no longer freezes • ▢ every window opens maximized (restore = 90 % of the screen), larger readable question dialogs • BUILD 2026-11-11d • 🔁 continuous runs until END by default (new eval → funded → payouts over and over), month by month, sprint badges • BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
+        private const string KeystoneBuild = "BUILD 2026-11-11s • 📥 TICK LIBRARY (download / keep / load real ticks), order-flow source badges (never from candles), the all-in-one ORDERFLOW desk, menu fix, 💡 3 SETUPS + OVERNIGHT preset • BUILD 2026-11-11r • 💡 BOLD / SMALL 1-A-DAY presets (one trade per account per day, ~1:1 wide bracket), Lucid payout locks the floor, payout hold, bracket re-priced for every trade • BUILD 2026-11-11q • funded trailing peak = the firm's liquidation value (closing commission), ✎ SYNC with Tradovate, EXECUTIONS fees from NinjaTrader • BUILD 2026-11-11p • 🎯 3 SETUPS: indicator layer, studio 3-SETUP ROTATION drawer, practice tickets, ROTATE guided source • BUILD 2026-11-11o • 🎯 3-SETUP ROTATION engine + study (FVG 50 % / aggression break / 123 engulfing, 30-account rotation, Lucid Flex 50K) • BUILD 2026-11-11n • LIVE TRADING: the account boxes fixed in their own row above the chart (bigger, never move / hide, kept in FULL CHART) + the account in words (firm • FUNDED / EVALUATION • trailing drawdown) + the bottom tab bar shrinks to fit • BUILD 2026-11-11m • entry marker: a small tick beside the candle (no big arrow / glow over the entry candle) • BUILD 2026-11-11l • 🧮 header TILES (balance, open, peak + time, floor $ + price + ▲ flash, room + drain bar, to lock / target + progress, the position) — each number once · 🆓 MANUAL practice (no rules) · 📊 ATTEMPTS tracker (summary, every attempt, its trades, ▶ jump, export, clear) · 🏷 gutter labels include the position / TP / SL (PEAK near the entry rides on it) · 🧠 ENTRY ANALYZER + 🧠 ENTRY SCORE (walk-forward, calibrated, says when there is no edge) • BUILD 2026-11-11k • 🔄 ROTATION SIM in the Backtest Studio (non-stop TP / SL brackets to the TPT lock or the blow: B / S patterns or rules, real ticks or the minute path with the reliability flag, ONE account + replay with FLOOR / PEAK / LOCK, 👥 POOL, 📊 ANALYZER + the no-edge maths, 🏆 FIND OPTIMAL checked on both halves, 💾 runs saved / reopened / compared) · 🖥 the chart first (drawers overlay it, one practice strip, the trailing numbers in the order column, FLOOR / LOCK / PEAK only, gutter labels never overlap) · 🔁 AUTO NEW ATTEMPT after a pass / lock / blow (on) · 📚 trailing-drawdown presets from the firm book + ＋ SAVE AS PRESET · 📼 LIVE DEMO history (saved + NinjaTrader, 5 / 30 / 90 / 365 days) • BUILD 2026-11-11j • ● LIVE DEMO in the Backtest Studio (real-time data, simulated fills, full prop practice) · several studios open at once · 🎯 PROP PRACTICE button in LIVE TRADING · 📐 the trailing-drawdown view (solid FLOOR / dotted PEAK / LOCK lines, the red room band, ▲ floor moved, the big panel: room $ + pts, peak, given back, to lock, balance) · 🎯 LOCK RACE preset (MNQ 5 … 60, 10 by default @ 9:30 with the 60-min trend; TP $2,000 / $1,000, SL floor / $1,000 / $500 / $250, BE at 75 %, the next trade aims for what is missing) • BUILD 2026-11-11i • 🔒 NinjaTrader Lockout recognised (entries refused, autopilot blocked) · 🎯 REVERSAL FVG scanner (signals only, ★ high volume, forward log) · 🎮 Sim101 listed · 🎯 live Sim101 prop practice · JJ removed • BUILD 2026-11-11h • TP / SL drag: the entry fades and can't be grabbed while dragging, a live points / $ label on the line, the order changes only on release • BUILD 2026-11-11g • 🤖 LIVE AUTOPILOT: GUIDED (flashing bracket, one press) for every firm, AUTO for Lucid / Tradeify only after ARM + typed START, through the armed links + limits • BUILD 2026-11-11f • defaults: ALL AT ONCE 2:00 + SPRINT 0 · 👥 owners (me / wife, 5 per firm each) · time presets · JJ strategy (practice) • BUILD 2026-11-11e • ● LIVE: only your active accounts (TPT eval / funded detected right, real balances, nicknames), groups + plan per group, CONFIRM no longer freezes • ▢ every window opens maximized (restore = 90 % of the screen), larger readable question dialogs • BUILD 2026-11-11d • 🔁 continuous runs until END by default (new eval → funded → payouts over and over), month by month, sprint badges • BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -37120,7 +37161,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private Window replayTraderWindow; private KeystoneReplayTrader replayTrader; private DispatcherTimer replayTraderTimer; private Action replayTraderLoad, replayTraderFlat, replayTraderEnd; private Action<int> replayTraderOrder, replayTraderStep;
         private Action<List<DateTime>> studioStartRange;
         private Action<KeystoneSimSettings, bool> studioPropStart; private Func<KeystonePropSim> studioPropSim; private Action studioPropRunDay; private Action<string> studioAddSymbol; private Func<int, int, string> studioRotEnter; private Action<bool> studioBoth; private Func<string, KeystoneReplayTrader> studioTrader;   // test hooks (prop sim, ＋ instruments)
-        private Func<string> studioPropExport; private Action studioPropCompare, studioPropFastStop; private Action<int> studioPropNext; private Func<string> studioPropView; private Action<int, bool> studioStrategy; private Action<string, int> studioLayer; private string studioRfvgErr; private int studioRfvgSeen; private string studioTriErr, studioTriTicket; private int studioTriSeen; private Action studioTriTake; private Func<string, string> studioTriRot;   /* 🎯 11p test hooks */   /* 🎯 11i test hooks: a layer on / off, the scanner's last drawing error, signals seen */ private Action<string> studioSetMode; private Func<string> studioModeNow; private Action<string> studioRotSides;   // test hooks: export (no browser), compare, RUN ALL ■ STOP, the next-day prompt's choice, which panel view shows
+        private Func<string> studioPropExport; private Action studioPropCompare, studioPropFastStop; private Action<int> studioPropNext; private Func<string> studioPropView; private Action<int, bool> studioStrategy; private Action<string, int> studioLayer; private string studioRfvgErr; private int studioRfvgSeen; private string studioTriErr, studioTriTicket; private int studioTriSeen; private Action studioTriTake; private Func<string, string> studioTriRot; private Func<string, string> studioOfDesk;   /* 🎯 11s test hook: the ORDERFLOW desk */   /* 🎯 11p test hooks */   /* 🎯 11i test hooks: a layer on / off, the scanner's last drawing error, signals seen */ private Action<string> studioSetMode; private Func<string> studioModeNow; private Action<string> studioRotSides;   // test hooks: export (no browser), compare, RUN ALL ■ STOP, the next-day prompt's choice, which panel view shows
         private Action<double> replayTraderNewAccount; private Action studioDataChanged; private Action<int> replayTraderRewind;
         private Action<bool> studioLiveDemo; private Action studioLiveStep; private Func<string> studioLiveBadge; private Action<string, KeystoneArcBar> studioLivePush;   /* ● LIVE DEMO (BUILD 11j) test hooks: switch it, one loop tick, the badge + status, a live bar */
         private Func<string, DateTime, DateTime, List<KeystoneArcBar>> studioLiveHistFake;   /* tests only: a stand-in for NinjaTrader's history BarsRequest (symbol, from, to) */ private Func<string, string> studioLiveHistory;
@@ -37382,7 +37423,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private sealed class ReplayPane
         {
             // 📊 ORDER FLOW (real NinjaTrader trades): the ticks, their footprints per candle, the session profile, the signals + hit rates
-            public bool OfOn, OfBusy, OfAutoTried, OfBuilding; public object OfLoggedRef; public string OfBase = ""; public object OfFpsSrc; public List<KeystoneOfTick> OfTicks = new List<KeystoneOfTick>(); public int OfQuoted; public string OfStatus = ""; public object OfTap, OfDepth; public string OfKey = "";
+            public bool OfOn, OfBusy, OfAutoTried, OfBuilding; public object OfLoggedRef; public string OfBase = ""; public object OfFpsSrc; public List<KeystoneOfTick> OfTicks = new List<KeystoneOfTick>(); public int OfQuoted; public string OfStatus = "", OfLib = ""; public object OfTap, OfDepth; public string OfKey = "";
             public List<KeystoneFootprint> OfFps; public int OfI0; public KeystoneProfile OfProf; public List<KeystoneOfSignal> OfSigs; public Dictionary<string, Tuple<int, int>> OfStats, OfConfStats; public List<KeystoneOfSignal> OfConf; public DateTime OfFrom = DateTime.MaxValue, OfBuiltAt = DateTime.MinValue; public Button OfBtn; public Action<bool> OfRun; public DateTime AiFirst; public double BattlePos = 0.5;
             public string Symbol = string.Empty; public List<KeystoneArcBar> All = new List<KeystoneArcBar>(); public KeystoneReplayTrader Trader; public int Tf = 1;
             public double Spacing = 9, RightOffset = 14, PCenter, PRange; public bool Follow = true, PriceAuto = true, FreeY;   /* FreeY: you dragged the chart up / down — it stays there (no pulling back to the price) until NOW / a double-click on the price axis */ public int LastCount, SavedFills, Pulse;
@@ -37398,6 +37439,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             public string Drag; public double DownX, DownY, Ro0, Pc0, Pr0, S0; public KeystoneReplayOrder DragOrder; public bool Moved; public KeystoneBracketDrag BDrag = new KeystoneBracketDrag();   /* ✋ 11h: the TP / SL drag in progress (it owns the mouse until release / Esc) */
         }
 
+        // 📊 BUILD 11s: the order flow's SOURCE BADGE colour — green = real trades with bid / ask, amber = real trades by the tick rule, grey = none (nothing is drawn)
+        private static SolidColorBrush OfBadgeBrush(long ticks, long quoted) { int lv = KeystoneOfSource.Level(ticks, quoted); return lv == 2 ? Green : lv == 1 ? Gold : Muted; }
+        private static Border OfBadgeChip(long ticks, long quoted, string extra)
+        {
+            var b = OfBadgeBrush(ticks, quoted); return new Border { Background = Tint(b, 40), BorderBrush = Tint(b, 170), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(9), Padding = new Thickness(8, 1, 8, 2), HorizontalAlignment = HorizontalAlignment.Left, Tag = "of.badge",
+                ToolTip = "where the order flow comes from: NinjaTrader's real trades (history = a 1-tick BarsRequest, live = the MarketData Last + bid / ask). With bid / ask the side of each trade is known; without it the tick rule (an up-tick = a buy) decides. Never estimated from candles.",
+                Child = new TextBlock { Text = KeystoneOfSource.Badge(ticks, quoted) + (string.IsNullOrEmpty(extra) ? "" : "  •  " + extra), Foreground = b, FontSize = 11, FontWeight = FontWeights.Bold } };
+        }
         private static SolidColorBrush Tint(SolidColorBrush b, byte alpha) { var x = new SolidColorBrush(Color.FromArgb(alpha, b.Color.R, b.Color.G, b.Color.B)); x.Freeze(); return x; }
 
         // a dark, clear confirmation (OK / CANCEL) for actions that close trades
@@ -37434,7 +37483,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private Window backtestStudioWindow, liveStudioWindow; private readonly Dictionary<Window, Dictionary<string, object>> studioHookSets = new Dictionary<Window, Dictionary<string, object>>();
         private static readonly string[] StudioHookNames = { "replayTraderWindow", "replayTrader", "replayTraderTimer", "replayTraderLoad", "replayTraderFlat", "replayTraderEnd", "replayTraderOrder", "replayTraderStep", "replayTraderNewAccount", "replayTraderRewind",
             "studioStartRange", "studioPropStart", "studioPropSim", "studioPropRunDay", "studioAddSymbol", "studioRotEnter", "studioBoth", "studioTrader", "studioPropExport", "studioPropCompare", "studioPropFastStop", "studioPropNext", "studioPropView",
-            "studioStrategy", "studioLayer", "studioRfvgErr", "studioRfvgSeen", "studioTriErr", "studioTriTicket", "studioTriSeen", "studioTriTake", "studioTriRot", "studioSetMode", "studioModeNow", "studioRotSides", "studioDataChanged", "studioShowReportDay", "studioDollarBracket", "studioTradeTags", "studioPoolAct", "studioPoolToggle",
+            "studioStrategy", "studioLayer", "studioRfvgErr", "studioRfvgSeen", "studioTriErr", "studioTriTicket", "studioTriSeen", "studioTriTake", "studioTriRot", "studioOfDesk", "studioSetMode", "studioModeNow", "studioRotSides", "studioDataChanged", "studioShowReportDay", "studioDollarBracket", "studioTradeTags", "studioPoolAct", "studioPoolToggle",
             "studioMainRow", "studioOpenDrawer", "studioShowDrawer", "studioTopRows", "studioTicksExport", "studioTradesExport", "studioLiveDemo", "studioLiveStep", "studioLiveBadge", "studioLivePush", "studioPracPanel", "studioRaceGo", "studioIsLive", "studioRotSim", "studioDrawerOverlay", "studioPracState", "studioLiveHistory", "studioTiles", "studioAttempts", "studioAttemptsText", "studioAttemptsExport", "studioEntryScore", "studioEntry" };
         private static System.Reflection.FieldInfo StudioHookField(string n) { return typeof(KeystoneArc5MResearchLab).GetField(n, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public); }
         private void SaveStudioHooks(Window owner)
@@ -38066,7 +38115,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             Func<string, int, bool> ofLay = (k, d) =>
             {
                 if (!ofViewOn || layerOf("OF.TAB", 1) != 1) return false; if (ofSub == "ALL") return layerOf("OF.L." + k, d) == 1;
-                string set = ofSub == "SIGNALS" ? "SIG,LVL" : ofSub == "PROFILE" ? "PROF,LVL" : ofSub == "DELTA" ? "STAT,CVD,STK" : ofSub == "FLOW" ? "FLOW,TAPE" : ofSub == "BOOK" ? "BOOK,TAPE" : "";
+                string set = ofSub == "SIGNALS" ? "SIG,LVL,PROF,DPROF" : ofSub == "PROFILE" ? "PROF,LVL,DPROF" : ofSub == "DELTA" ? "STAT,CVD,STK,DPROF" : ofSub == "FLOW" ? "FLOW,TAPE" : ofSub == "BOOK" ? "BOOK,TAPE" : "";
+                if ((k == "PROF" || k == "DPROF") && ofSub != "PROFILE" && layerOf("OF.PROFS", 1) != 1) return false;   /* 🎯 11s: ▥ PROFILES on / off (the PROFILE view always shows them) */
                 return ("," + set + ",").Contains("," + k + ",");
             };
             // TIME ZONE for the clock and the time axis (the data stays New York time inside)
@@ -38800,10 +38850,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                     var fpsD = pn.OfFps; var prD = pn.OfProf; double stepD = KeystoneOrderFlow.RowStep(tkO, ofS);
                     // each part is its own layer (right-click / ▾ on 📊 ORDER FLOW): ENTRIES ONLY = just the ▲ ▼ signals
                     bool lSig = ofLay("SIG", 1), lProf = ofLay("PROF", 1), lLvl = ofLay("LVL", 1), lStk = ofLay("STK", 1), lDlt = ofLay("DLT", 0),
-                         lCvd = ofLay("CVD", 1), lBox = ofLay("BOX", 1), lStat = ofLay("STAT", 1), lTape = ofLay("TAPE", 1), lFlow = ofLay("FLOW", 1), lBook = ofLay("BOOK", 1);
+                         lCvd = ofLay("CVD", 1), lBox = ofLay("BOX", 1), lStat = ofLay("STAT", 1), lTape = ofLay("TAPE", 1), lFlow = ofLay("FLOW", 1), lBook = ofLay("BOOK", 1), lDprof = ofLay("DPROF", 1);
                     Func<long, string> numL = v => Math.Abs(v) >= 10000 ? (v / 1000.0).ToString("0.#", CultureInfo.InvariantCulture) + "k" : v.ToString("N0", CultureInfo.InvariantCulture);
                     Func<double, bool> onPlot = yy => yy >= pn.Top && yy <= pn.Top + pn.PlotH;
-                    if (prD != null && prD.Rows.Count > 0 && (lProf || lLvl))
+                    if (prD != null && prD.Rows.Count > 0 && (lProf || lLvl || lDprof))
                     {
                         double rowPx = Math.Abs(yOf(pn, prD.Poc) - yOf(pn, prD.Poc + stepD)); int grp = Math.Max(1, (int)Math.Ceiling(2.5 / Math.Max(0.01, rowPx)));
                         var keysP = prD.Rows.Keys.ToList(); var buckets = new List<Tuple<double, double, long, long>>();   // lo, hi, buy, sell
@@ -38814,11 +38864,24 @@ namespace NinjaTrader.NinjaScript.AddOns
                             if (!lProf) break;
                             double y1 = yOf(pn, bk.Item2), y2 = yOf(pn, bk.Item1); if (y2 < pn.Top || y1 > pn.Top + pn.PlotH) continue;
                             long tot = bk.Item3 + bk.Item4; double wd = maxW * tot / maxB; bool inVa = bk.Item1 >= prD.Val - 1e-9 && bk.Item2 <= prD.Vah + 1e-9, isPoc = prD.Poc >= bk.Item1 - 1e-9 && prD.Poc < bk.Item2 - 1e-9;
-                            double hgt = Math.Max(1, Math.Abs(y2 - y1) - (rowPx * grp > 3 ? 1 : 0)), xr = pn.PlotW - 6;
+                            double hgt = Math.Max(1, Math.Abs(y2 - y1) - (rowPx * grp > 3 ? 1 : 0)), xr = pn.PlotW - 6 - (lDprof ? 54 : 0);
                             double wBuy = tot > 0 ? wd * bk.Item3 / tot : 0;
                             var rs = new System.Windows.Shapes.Rectangle { Width = Math.Max(1, wd - wBuy), Height = hgt, Fill = isPoc ? (Brush)Gold : Red, Opacity = isPoc ? 0.9 : inVa ? 0.5 : 0.25, IsHitTestVisible = false };
                             System.Windows.Controls.Canvas.SetLeft(rs, xr - wd); System.Windows.Controls.Canvas.SetTop(rs, Math.Min(y1, y2)); cv.Children.Add(rs);
                             if (wBuy >= 1) { var rb = new System.Windows.Shapes.Rectangle { Width = wBuy, Height = hgt, Fill = isPoc ? (Brush)Gold : Green, Opacity = isPoc ? 0.9 : inVa ? 0.55 : 0.28, IsHitTestVisible = false }; System.Windows.Controls.Canvas.SetLeft(rb, xr - wBuy); System.Windows.Controls.Canvas.SetTop(rb, Math.Min(y1, y2)); cv.Children.Add(rb); }
+                        }
+                        if (lDprof)
+                        {   /* 🎯 BUILD 11s: the DELTA PROFILE — a thin column by the price axis: bought − sold at each price (green right of the middle line, red left), from the real trades only */
+                            long maxDl = Math.Max(1, buckets.Max(x => Math.Abs(x.Item3 - x.Item4))); double xc = pn.PlotW - 30, half = 22;
+                            cv.Children.Add(new System.Windows.Shapes.Line { X1 = xc, X2 = xc, Y1 = pn.Top, Y2 = pn.Top + pn.PlotH, Stroke = Muted, StrokeThickness = 1, Opacity = 0.35, IsHitTestVisible = false, Tag = "of.dprof" });
+                            foreach (var bk in buckets)
+                            {
+                                double y1 = yOf(pn, bk.Item2), y2 = yOf(pn, bk.Item1); if (y2 < pn.Top || y1 > pn.Top + pn.PlotH) continue; long dl = bk.Item3 - bk.Item4; if (dl == 0) continue;
+                                double wdl = Math.Max(1, half * Math.Abs(dl) / maxDl), hgt = Math.Max(1, Math.Abs(y2 - y1) - (rowPx * grp > 3 ? 1 : 0));
+                                var rd = new System.Windows.Shapes.Rectangle { Width = wdl, Height = hgt, Fill = dl > 0 ? Green : Red, Opacity = 0.75, IsHitTestVisible = false };
+                                System.Windows.Controls.Canvas.SetLeft(rd, dl > 0 ? xc : xc - wdl); System.Windows.Controls.Canvas.SetTop(rd, Math.Min(y1, y2)); cv.Children.Add(rd);
+                            }
+                            var dlab = new TextBlock { Text = "Δ PROFILE", Foreground = Muted, FontSize = 9, FontWeight = FontWeights.Bold, IsHitTestVisible = false }; System.Windows.Controls.Canvas.SetLeft(dlab, xc - 24); System.Windows.Controls.Canvas.SetTop(dlab, pn.Top + 2); cv.Children.Add(dlab);
                         }
                         foreach (var lv0 in new[] { Tuple.Create(prD.Poc + stepD / 2, (Brush)Gold, "POC"), Tuple.Create(prD.Vah, (Brush)Cyan, "VAH"), Tuple.Create(prD.Val, (Brush)Cyan, "VAL") })
                         {
@@ -39021,7 +39084,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (pn.OfTicks.Count > 0)
                     {
                         double qpct = 100.0 * pn.OfQuoted / Math.Max(1, pn.OfTicks.Count);
-                        stO = "📊 ORDER FLOW • " + (qpct >= 50 ? "REAL TRADES, bid / ask at each trade (" + qpct.ToString("0", CultureInfo.InvariantCulture) + "%)" : "REAL TRADES • side by the tick rule (NinjaTrader's history has no bid / ask)") + " • " + pn.OfTicks.Count.ToString("N0", CultureInfo.InvariantCulture) + " trades"
+                        stO = "📊 ORDER FLOW • " + KeystoneOfSource.Badge(pn.OfTicks.Count, pn.OfQuoted) + (pn.OfLib != "" ? " (" + pn.OfLib + ")" : "") + " • " + (qpct >= 50 ? "REAL TRADES, bid / ask at each trade" : "REAL TRADES • side by the tick rule (NinjaTrader's history has no bid / ask)") + " • " + pn.OfTicks.Count.ToString("N0", CultureInfo.InvariantCulture) + " trades"
                             + (tapR != null ? (tapR.Problem != "" ? " • live feed: " + tapR.Problem : " • ● LIVE " + tapR.Count.ToString("N0", CultureInfo.InvariantCulture)) : "")
                             + (prD != null && !double.IsNaN(prD.Poc) ? "\n" + "SESSION Δ " + sgnL(prD.Buy - prD.Sell) + " • POC " + fmt(prD.Poc) + " • VALUE AREA " + fmt(prD.Val) + " – " + fmt(prD.Vah) + (prD.Hvn.Count > 0 ? " • HVN " + string.Join(" ", prD.Hvn.Take(3).Select(fmt)) : "") + (prD.Lvn.Count > 0 ? " • LVN " + string.Join(" ", prD.Lvn.Take(3).Select(fmt)) : "") : "");
                         if (pn.OfStats != null && pn.OfStats.Count > 0)
@@ -39064,7 +39127,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                         if (layerOf("OF.CONF", 0) == 1)
                         {
                             // rebuilt only when something it reads changed (a new trade / candle / price), not on every redraw
-                            string ckQ = fpsD.Count + "|" + fpsD[fpsD.Count - 1].Volume + "|" + r.Price + "|" + cs.Count + "|" + pn.Tf + "|" + r.Time.ToString("yyyyMMddHHmm") + "|" + (prD == null ? 0 : prD.Volume);
+                            string ckQ = KeystoneOfSource.Level(pn.OfTicks.Count, pn.OfQuoted) + "|" + fpsD.Count + "|" + fpsD[fpsD.Count - 1].Volume + "|" + r.Price + "|" + cs.Count + "|" + pn.Tf + "|" + r.Time.ToString("yyyyMMddHHmm") + "|" + (prD == null ? 0 : prD.Volume);
                             if (pn.ChkBox == null || pn.ChkKey != ckQ)
                             {
                             Func<DateTime, DateTime> sessQ = t0 => { var t1 = t0.AddMinutes(-1); return t1.Hour >= 18 ? t1.Date.AddDays(1) : t1.Date; };
@@ -39079,6 +39142,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                             SolidColorBrush leadQ = nBuy > nSell ? Green : nSell > nBuy ? Red : Gold;
                             var bxQ = new StackPanel();
                             bxQ.Children.Add(new TextBlock { Text = "✅ CONFIRMATIONS • " + pn.Tf + "M   ▲ BUY " + nBuy + "   ▼ SELL " + nSell + "   of " + chk.Count, Foreground = leadQ, FontSize = 11, FontWeight = FontWeights.Bold });
+                            bxQ.Children.Add(new TextBlock { Text = KeystoneOfSource.Badge(pn.OfTicks.Count, pn.OfQuoted) + " (delta / volume / buyers from NinjaTrader's trades)", Foreground = OfBadgeBrush(pn.OfTicks.Count, pn.OfQuoted), FontSize = 10, FontWeight = FontWeights.Bold, Tag = "of.badge.conf" });
                             {
                                 foreach (var x in chk)
                                 {
@@ -39125,7 +39189,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     SolidColorBrush frO = ofViewOn ? Cyan : Gold;
                     cv.Children.Add(new System.Windows.Shapes.Rectangle { Width = Math.Max(10, pn.PlotW - 2), Height = Math.Max(10, pn.PlotH), Stroke = frO, StrokeThickness = 1.5, Opacity = 0.45, IsHitTestVisible = false });
                     var fl0 = new Border { CornerRadius = new CornerRadius(0, 0, 7, 0), Padding = new Thickness(8, 1, 8, 2), Background = Tint(frO, 60), IsHitTestVisible = false,
-                        Child = new TextBlock { Text = ofViewOn ? "📊 ORDERFLOW • ANALYSIS ONLY" : liveWindow ? "● TRADING" : "● TRADING • REPLAY", Foreground = frO, FontSize = 10, FontWeight = FontWeights.Bold } };
+                        Child = new TextBlock { Text = ofViewOn ? "📊 ORDERFLOW • ANALYSIS ONLY  •  " + KeystoneOfSource.Badge(pn.OfTicks.Count, pn.OfQuoted) : liveWindow ? "● TRADING" : "● TRADING • REPLAY", Foreground = frO, FontSize = 10, FontWeight = FontWeights.Bold } };
                     System.Windows.Controls.Canvas.SetLeft(fl0, 0); System.Windows.Controls.Canvas.SetTop(fl0, pn.Top); cv.Children.Add(fl0);
                     if (entryScoreOn && !ofViewOn)
                     {   /* 🧠 11l ENTRY SCORE: the closed candle's chance to reach +X before −X, LONG / SHORT vs the base — coloured only when clearly above it with enough samples */
@@ -41106,7 +41170,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     };
                     // ▾ / right-click: what to show — every part its own switch, ENTRIES ONLY = just the ▲ ▼ signals
                     var ofMenuBtn = Btn("▾", Card); ofMenuBtn.Height = 26; ofMenuBtn.FontSize = 12; ofMenuBtn.Padding = new Thickness(6, 0, 6, 0); ofMenuBtn.Margin = new Thickness(0, 0, 4, 0); ofMenuBtn.ToolTip = "ORDER FLOW: what to show (entries only, profile, bar statistics, tape …) and settings";
-                    var ofParts = new[] { Tuple.Create("SIG", "▲ ▼ ENTRY SIGNALS (with their hit rate)", 1), Tuple.Create("FLOW", "⚡ LIVE FLOW (everybody's buying vs selling now: 10 s / 1 min / 5 min, speed, delta moving)", 1), Tuple.Create("BOOK", "📚 ORDER BOOK (resting buy / sell orders, live)", 1), Tuple.Create("STAT", "📋 BAR STATISTICS under the candles (volume, buy, sell, delta)", 1), Tuple.Create("TAPE", "🧾 TAPE (the latest trades, big ones highlighted)", 1), Tuple.Create("PROF", "VOLUME PROFILE (right side)", 1), Tuple.Create("LVL", "POC / VAH / VAL lines", 1), Tuple.Create("STK", "STACKED IMBALANCES (bars beside the candles)", 1), Tuple.Create("DLT", "DELTA under each candle", 0), Tuple.Create("CVD", "CUMULATIVE DELTA band", 1), Tuple.Create("BOX", "INFO BOX (data source, session, hit rates)", 1) };
+                    var ofParts = new[] { Tuple.Create("SIG", "▲ ▼ ENTRY SIGNALS (with their hit rate)", 1), Tuple.Create("FLOW", "⚡ LIVE FLOW (everybody's buying vs selling now: 10 s / 1 min / 5 min, speed, delta moving)", 1), Tuple.Create("BOOK", "📚 ORDER BOOK (resting buy / sell orders, live)", 1), Tuple.Create("STAT", "📋 BAR STATISTICS under the candles (volume, buy, sell, delta)", 1), Tuple.Create("TAPE", "🧾 TAPE (the latest trades, big ones highlighted)", 1), Tuple.Create("PROF", "VOLUME PROFILE (right side)", 1), Tuple.Create("DPROF", "Δ DELTA PROFILE (thin column by the price axis)", 1), Tuple.Create("LVL", "POC / VAH / VAL lines", 1), Tuple.Create("STK", "STACKED IMBALANCES (bars beside the candles)", 1), Tuple.Create("DLT", "DELTA under each candle", 0), Tuple.Create("CVD", "CUMULATIVE DELTA band", 1), Tuple.Create("BOX", "INFO BOX (data source, session, hit rates)", 1) };
                     Action<Dictionary<string, int>> ofApply = set => { foreach (var kv in set) layerModes["OF.L." + kv.Key] = kv.Value; saveWorkspace(); render(pn); };
                     Action ofMenu = () =>
                     {
@@ -42112,24 +42176,31 @@ namespace NinjaTrader.NinjaScript.AddOns
                         // ✓ INDICATORS: tick / untick them right here, like other platforms (the same switches as the INDICATORS row)
                         cm.Items.Add(new Separator());
                         var indM = mi("📈 INDICATORS", null);
+                        /* 🧰 BUILD 11s (user's bug): a ☐ / ☑ toggle keeps the menu open (StaysOpenOnClick) and flips its own tick — the menu closes on an outside click / Esc */
+                        Func<string, Func<bool>, Action, MenuItem> tog = (label, isOn, act) => { var m = new MenuItem { Header = (isOn() ? "☑  " : "☐  ") + label, StaysOpenOnClick = true }; m.Click += delegate { act(); m.Header = (isOn() ? "☑  " : "☐  ") + label; }; return m; };
+                        Action ofRefresh = delegate { saveWorkspace(); foreach (var cp0 in chipPainters) cp0(); foreach (var p2 in panes) if (p2.OfRun != null) p2.OfRun(ofChartNeeds() || (ofViewOn && ReferenceEquals(p2, active))); renderAll(); };
                         foreach (var ind0 in new[] { Tuple.Create("IND.VWAP", "VWAP ±1σ"), Tuple.Create("IND.ORB15", "ORB 15"), Tuple.Create("IND.ORB30", "ORB 30"), Tuple.Create("IND.FVG", "FVG ZONES"), Tuple.Create("IND.AI", "🤖 AI") })
                         {
-                            var key0 = ind0.Item1; bool on0 = layerOf(key0, KeystoneLiveTools.Off) != KeystoneLiveTools.Off;
-                            indM.Items.Add(mi((on0 ? "☑  " : "☐  ") + ind0.Item2, delegate { layerModes[key0] = on0 ? KeystoneLiveTools.Off : KeystoneLiveTools.Always; saveWorkspace(); foreach (var cp0 in chipPainters) cp0(); renderAll(); }));
+                            var key0 = ind0.Item1;
+                            indM.Items.Add(tog(ind0.Item2, () => layerOf(key0, KeystoneLiveTools.Off) != KeystoneLiveTools.Off, delegate { bool on0 = layerOf(key0, KeystoneLiveTools.Off) != KeystoneLiveTools.Off; layerModes[key0] = on0 ? KeystoneLiveTools.Off : KeystoneLiveTools.Always; saveWorkspace(); foreach (var cp0 in chipPainters) cp0(); renderAll(); }));
                         }
-                        if (!liveWindow) { bool lvOn = layerOf("LVL.ST", 0) == 1; indM.Items.Add(mi((lvOn ? "☑  " : "☐  ") + "HIGH / LOW LINES (PDH / PDL / overnight)", delegate { layerModes["LVL.ST"] = lvOn ? 0 : 1; saveWorkspace(); foreach (var cp0 in chipPainters) cp0(); renderAll(); })); }
-                        bool csOn = layerOf("OF.CHARTSIG", 0) == 1;
-                        indM.Items.Add(mi((csOn ? "☑  " : "☐  ") + "✅ TRACK SETUPS (markers in the ORDERFLOW tab)", delegate { layerModes["OF.CHARTSIG"] = csOn ? 0 : 1; saveWorkspace(); foreach (var cp0 in chipPainters) cp0(); foreach (var p2 in panes) if (p2.OfRun != null) p2.OfRun(ofChartNeeds() || (ofViewOn && ReferenceEquals(p2, active))); renderAll(); }));
-                        bool btOn = layerOf("OF.BATTLE", 1) == 1;
-                        indM.Items.Add(mi((btOn ? "☑  " : "☐  ") + "⚔ BULLS vs BEARS", delegate { layerModes["OF.BATTLE"] = btOn ? 0 : 1; saveWorkspace(); foreach (var cp0 in chipPainters) cp0(); foreach (var p2 in panes) if (p2.OfRun != null) p2.OfRun(ofChartNeeds() || (ofViewOn && ReferenceEquals(p2, active))); renderAll(); }));
+                        if (!liveWindow) indM.Items.Add(tog("HIGH / LOW LINES (PDH / PDL / overnight)", () => layerOf("LVL.ST", 0) == 1, delegate { layerModes["LVL.ST"] = layerOf("LVL.ST", 0) == 1 ? 0 : 1; saveWorkspace(); foreach (var cp0 in chipPainters) cp0(); renderAll(); }));
+                        indM.Items.Add(tog("✅ TRACK SETUPS (markers in the ORDERFLOW tab)", () => layerOf("OF.CHARTSIG", 0) == 1, delegate { layerModes["OF.CHARTSIG"] = layerOf("OF.CHARTSIG", 0) == 1 ? 0 : 1; ofRefresh(); }));
+                        indM.Items.Add(tog("⚔ BULLS vs BEARS", () => layerOf("OF.BATTLE", 1) == 1, delegate { layerModes["OF.BATTLE"] = layerOf("OF.BATTLE", 1) == 1 ? 0 : 1; ofRefresh(); }));
                         foreach (var ofT in new[] { Tuple.Create("OF.CNUM", "🔢 CONTRACTS under each candle (delta / volume)"), Tuple.Create("OF.CONF", "✅ BUY / SELL CONFIRMATIONS box") })
                         {
-                            var ofTk = ofT.Item1; bool ofTOn = layerOf(ofTk, 0) == 1;
-                            indM.Items.Add(mi((ofTOn ? "☑  " : "☐  ") + ofT.Item2, delegate { layerModes[ofTk] = ofTOn ? 0 : 1; saveWorkspace(); foreach (var cp0 in chipPainters) cp0(); foreach (var p2 in panes) if (p2.OfRun != null) p2.OfRun(ofChartNeeds() || (ofViewOn && ReferenceEquals(p2, active))); renderAll(); }));
+                            var ofTk = ofT.Item1;
+                            indM.Items.Add(tog(ofT.Item2, () => layerOf(ofTk, 0) == 1, delegate { layerModes[ofTk] = layerOf(ofTk, 0) == 1 ? 0 : 1; ofRefresh(); }));
                         }
-                        bool ofB = layerOf("OF.BADGE", layerOf("OF.ON", 0)) == 1; var ofBtnM = pn.OfBtn;
-                        indM.Items.Add(mi((ofB ? "☑  " : "☐  ") + "📊 ORDER FLOW setup badge", delegate { if (ofBtnM != null) ofBtnM.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }));
-                        if (ofGoH != null) indM.Items.Add(mi("📊 open the ORDERFLOW view ▸", delegate { if (ofGoH != null) ofGoH(); }));
+                        var ofBtnM = pn.OfBtn;
+                        indM.Items.Add(tog("📊 ORDER FLOW setup badge", () => layerOf("OF.BADGE", layerOf("OF.ON", 0)) == 1, delegate { if (ofBtnM != null) ofBtnM.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }));
+                        if (ofGoH != null)
+                        {   /* the ORDERFLOW view as a real submenu: one click opens that view */
+                            var ofVm = mi("📊 ORDERFLOW view", null);
+                            string[][] ofVs = { new[] { "SIGNALS", "🎯 SIGNALS" }, new[] { "PROFILE", "📊 VOLUME PROFILE" }, new[] { "DELTA", "⚖ DELTA" }, new[] { "FLOW", "● LIVE FLOW" }, new[] { "BOOK", "📚 ORDER BOOK" }, new[] { "ALL", "✦ ALL" } };
+                            for (int vi = 0; vi < ofVs.Length; vi++) { var code = ofVs[vi][0]; int idx = vi; ofVm.Items.Add(mi((ofViewOn && ofSub == code ? "◉  " : "○  ") + ofVs[vi][1], delegate { ofSub = code; layerModes["OF.SUB"] = idx; saveWorkspace(); if (ofGoH != null) ofGoH(); })); }
+                            indM.Items.Add(ofVm);
+                        }
                         cm.Items.Add(indM);
                         bool tsEnd = layerOf("TS.END", 0) == 1; var tsM = mi("🕘 Candle time", null);
                         tsM.Items.Add(mi((!tsEnd ? "◉  " : "○  ") + "OPENING minute — real time (the 09:30 candle = 09:30:00–09:30:59)", delegate { layerModes["TS.END"] = 0; saveWorkspace(); renderAll(); }));
@@ -42527,15 +42598,15 @@ namespace NinjaTrader.NinjaScript.AddOns
             {   /* ⏱ item 36: the replayed day's REAL ticks — the cache (Studio\TickCache) first, else NinjaTrader's tick history (then cached), else its 1-second bars;
                    none → the estimated path with the ⚠ note on the chart (⤓ GET TICKS asks again) */
                 var trT = pnT.Trader; if (trT == null || trT.Bars.Count == 0) return; DateTime dayT = KeystoneStudioStore.SessionOf(trT.Bars[trT.Bars.Count - 1].Time).Date; string srcT;
-                var cached = KeystoneTickCache.Load(sfolder, pnT.Symbol, dayT, out srcT); if (cached != null && cached.Count > 0) { trT.SetTicks(cached, srcT); return; }
+                var cached = KeystoneTickCache.Load(sfolder, pnT.Symbol, dayT, out srcT); if (cached != null && cached.Count > 0) { trT.SetTicks(cached, srcT); trT.TickNote += " · 📥 TICK LIBRARY"; return; }   /* 📥 11s: the library first */
                 var instT = ofInstH != null ? ofInstH(pnT.Symbol) : null; if (instT == null) { trT.TickNote = "no NinjaTrader contract for " + pnT.Symbol; return; }
                 DateTime fT = trT.Bars[0].Time.AddMinutes(-1), tT = trT.Bars[trT.Bars.Count - 1].Time; trT.TickNote = "⏳ loading the real ticks of " + dayT.ToString("ddd d MMM", CultureInfo.InvariantCulture) + " from NinjaTrader …";
                 RequestTicks(instT, fT, tT, w.Dispatcher, (list, quoted, problem) =>
                 {
-                    if (list.Count > 0) { var tks = list.Select(x => new KeystoneTick { Time = x.Time, Price = x.Price, Volume = x.Size }).ToList(); try { KeystoneTickCache.Save(sfolder, pnT.Symbol, dayT, tks, "TICKS"); } catch { } if (pnT.Trader == trT) { trT.SetTicks(tks, "TICKS"); render(pnT); } return; }
+                    if (list.Count > 0) { var tks = list.Select(x => new KeystoneTick { Time = x.Time, Price = x.Price, Volume = x.Size }).ToList(); var symS = pnT.Symbol; var keep = list; bool doneDay = KeystoneTickLib.SessionEnd(dayT) < DateTime.Now.AddMinutes(-5) && !KeystoneTickLib.Info(sfolder, symS, dayT).RealTicks; System.Threading.Tasks.Task.Factory.StartNew(() => { try { KeystoneTickLib.Save(sfolder, symS, dayT, keep, "TICKS", doneDay && keep[0].Time <= KeystoneTickLib.SessionStart(dayT).AddMinutes(30)); } catch { } }); if (pnT.Trader == trT) { trT.SetTicks(tks, "TICKS"); trT.TickNote += " · 📥 saved to the TICK LIBRARY"; render(pnT); } return; }   /* 📥 11s: kept with side + bid / ask */
                     RequestSecondBars(instT, fT, tT, w.Dispatcher, (secs, problem2) =>
                     {
-                        if (secs.Count > 0) { var tks = KeystoneTickCache.FromSeconds(secs); try { KeystoneTickCache.Save(sfolder, pnT.Symbol, dayT, tks, "SECONDS"); } catch { } if (pnT.Trader == trT) { trT.SetTicks(tks, "SECONDS"); render(pnT); } return; }
+                        if (secs.Count > 0) { var tks = KeystoneTickCache.FromSeconds(secs); try { KeystoneTickLib.SaveSeconds(sfolder, pnT.Symbol, dayT, secs); } catch { } if (pnT.Trader == trT) { trT.SetTicks(tks, "SECONDS"); trT.TickNote += " · no bid / ask (1-second bars, never order flow)"; render(pnT); } return; }
                         trT.TickNote = "no tick / 1-second history from NinjaTrader (" + (problem + " " + problem2).Trim() + ")"; if (pnT.Trader == trT) render(pnT);
                     });
                 });
@@ -42548,17 +42619,53 @@ namespace NinjaTrader.NinjaScript.AddOns
                 DateTime sess = KeystoneStudioStore.SessionOf(lastT).Date, from = sess.AddDays(-(days - 1)).AddHours(-6), to = liveWindow ? DateTime.Now.AddMinutes(5) : lastT.AddMinutes(1);
                 while (from.DayOfWeek == DayOfWeek.Saturday || from.DayOfWeek == DayOfWeek.Sunday) from = from.AddDays(-1);
                 pnL.OfBusy = true; pnL.OfStatus = "📊 ORDER FLOW • loading NinjaTrader's tick history " + from.ToString("MM-dd HH:mm") + " → " + (liveWindow ? "now" : to.ToString("MM-dd HH:mm")) + " …"; render(pnL);
+                string symL = pnL.Symbol; var dispL = w.Dispatcher;
+                Action fromNinja = null;
+                if (!liveWindow)
+                {   /* 📥 11s: the replay reads the TICK LIBRARY when every session day of the window is there (real trades only — never 1-second bars) */
+                    System.Threading.Tasks.Task.Factory.StartNew(() =>
+                    {
+                        var allL = new List<KeystoneOfTick>(); int nd = 0; bool all = true;
+                        for (var d = KeystoneTickLib.SessionOfTick(from.AddMinutes(1)); d <= KeystoneTickLib.SessionOfTick(to); d = d.AddDays(1))
+                        { if (!KeystoneTickLib.IsSessionDay(d)) continue; KeystoneTickDay md; var l = KeystoneTickLib.OrderFlowTicks(sfolder, symL, d, out md); if (l == null) { all = false; break; } allL.AddRange(l); nd++; }
+                        allL = all ? allL.Where(x => x.Time > from && x.Time <= to).OrderBy(x => x.Time).ToList() : null;
+                        dispL.BeginInvoke(new Action(() =>
+                        {
+                            if (allL == null || allL.Count == 0) { if (fromNinja != null) fromNinja(); return; }
+                            pnL.OfBusy = false; if (!pnL.OfOn) return; pnL.OfTicks = allL; pnL.OfQuoted = allL.Count(x => x.Quoted); pnL.OfFrom = allL[0].Time; pnL.OfKey = ""; pnL.OfLib = "📥 TICK LIBRARY • " + nd + " day" + (nd == 1 ? "" : "s"); render(pnL);
+                        }));
+                    });
+                }
+                fromNinja = delegate {
                 RequestTicks(inst, from, to, w.Dispatcher, (list, quoted, problem) =>
                 {
-                    pnL.OfBusy = false;
+                    pnL.OfBusy = false; pnL.OfLib = "NinjaTrader tick history";
+                    if (list.Count > 0)
+                    {   /* 📥 11s: every session day this request covered goes into the TICK LIBRARY (kept for good, written in the background) */
+                        var keepL = list; DateTime lastSes = KeystoneTickLib.SessionOfTick(to); DateTime fromL = from;
+                        System.Threading.Tasks.Task.Factory.StartNew(() =>
+                        {
+                            try
+                            {
+                                for (var d = KeystoneTickLib.SessionOfTick(fromL.AddMinutes(1)); d <= lastSes; d = d.AddDays(1))
+                                {
+                                    if (!KeystoneTickLib.IsSessionDay(d) || KeystoneTickLib.Info(sfolder, symL, d).Status == "COMPLETE") continue; var dl = KeystoneTickLib.DayOf(keepL, d); if (dl.Count == 0) continue;
+                                    bool full = fromL <= KeystoneTickLib.SessionStart(d) && d < lastSes && KeystoneTickLib.SessionEnd(d) < DateTime.Now; KeystoneTickLib.Save(sfolder, symL, d, dl, "TICKS", full);
+                                }
+                            }
+                            catch { }
+                        });
+                    }
                     if (!pnL.OfOn) return;
-                    if (problem != "" && list.Count == 0) { pnL.OfStatus = "📊 ORDER FLOW • NO TICK DATA from NinjaTrader (" + problem.Trim() + ") — tick history must be available for " + pnL.Symbol + " (Tools ▸ Historical Data ▸ Tick)"; render(pnL); return; }
+                    if (list.Count == 0) { pnL.OfStatus = "📊 " + KeystoneOfSource.NoneText + " • NinjaTrader returned no trades" + (problem.Trim() != "" ? " (" + problem.Trim() + ")" : "") + " — nothing is estimated from the candles — tick history must be available for " + pnL.Symbol + " (Tools ▸ Historical Data ▸ Tick)"; render(pnL); return; }
                     bool inOrder = true; for (int i = 1; i < list.Count; i++) if (list[i].Time < list[i - 1].Time) { inOrder = false; break; }
                     if (!inOrder) list = list.OrderBy(x => x.Time).ToList();   // NinjaTrader sends them in order: sorting millions on the screen's thread only when needed
                     pnL.OfTicks = list; pnL.OfQuoted = quoted; pnL.OfFrom = list.Count > 0 ? list[0].Time : DateTime.MaxValue; pnL.OfKey = "";
                     if (liveWindow) { var old = pnL.OfTap as OfLiveTap; if (old != null) old.Stop(); var tap = StartOfTap(inst); pnL.OfTap = tap; var oldD = pnL.OfDepth as OfDepthTap; if (oldD != null) oldD.Stop(); pnL.OfDepth = StartDepthTap(inst); }
                     render(pnL);
                 });
+                };
+                if (liveWindow) fromNinja();
             };
             ofSettingsH = pnS =>
             {
@@ -44870,7 +44977,12 @@ namespace NinjaTrader.NinjaScript.AddOns
             // the same chart, full screen, analysis only: the header, the buttons and the trade panel step aside, a bar of views on top
             // (SIGNALS / VOLUME PROFILE / DELTA / LIVE FLOW / ORDER BOOK / ALL) — each shows one thing and says how to read it
             var ofBarRow = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
-            var ofBar = new Border { Visibility = Visibility.Collapsed, Background = Panel, BorderBrush = Tint(Cyan, 120), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(8, 6, 8, 6), Child = ofBarRow };
+            /* 🎯 BUILD 11s — the ALL-IN-ONE desk: row 1 = the views + controls, row 2 = ONE strip of numbers (candle Δ, cumulative Δ, buyers %, who is in control, the source badge) */
+            var ofNumRow = new WrapPanel { Margin = new Thickness(4, 6, 0, 0), Tag = "of.strip" }; var ofBarSp = new StackPanel(); ofBarSp.Children.Add(ofBarRow); ofBarSp.Children.Add(ofNumRow);
+            var ofBar = new Border { Visibility = Visibility.Collapsed, Background = Panel, BorderBrush = Tint(Cyan, 120), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(8, 6, 8, 6), Child = ofBarSp };
+            var ofNumBadge = new Border(); ofNumRow.Children.Add(ofNumBadge);
+            Func<string, TextBlock> ofNumTile = cap => { var v = new TextBlock { Text = "—", Foreground = Text, FontSize = 14, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas") }; var sp = new StackPanel { Orientation = Orientation.Horizontal }; sp.Children.Add(new TextBlock { Text = cap, Foreground = Muted, FontSize = 11, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) }); sp.Children.Add(v); ofNumRow.Children.Add(new Border { Background = Tint(Bg, 230), BorderBrush = Tint(Muted, 90), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 2, 10, 3), Margin = new Thickness(8, 0, 0, 0), Child = sp }); return v; };
+            var ofNumCandle = ofNumTile("CANDLE Δ"); var ofNumCvd = ofNumTile("CUM Δ"); var ofNumBuy = ofNumTile("BUYERS"); var ofNumCtl = ofNumTile("IN CONTROL");
             Grid.SetRow(ofBar, 0); root.Children.Add(ofBar);
             ofBarRow.Children.Add(new TextBlock { Text = "📊 ORDERFLOW", Foreground = Cyan, FontSize = 18, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 18, 0) });
             var ofViews = new[] { Tuple.Create("SIGNALS", "🎯 SIGNALS", "the ▲ ▼ setups with how often each worked"), Tuple.Create("PROFILE", "📊 VOLUME PROFILE", "where today's contracts traded: POC, value area"), Tuple.Create("DELTA", "⚖ DELTA", "buyers vs sellers per candle, cumulative delta, imbalances"), Tuple.Create("FLOW", "⚡ LIVE FLOW", "everybody's buying vs selling right now + the tape"), Tuple.Create("BOOK", "📚 ORDER BOOK", "the orders waiting at each price"), Tuple.Create("ALL", "✦ ALL", "everything together (choose the parts with ▾ on the chart bar)") };
@@ -44911,23 +45023,51 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
             var ofSetBtn = ofPill("⚙ SETTINGS", Card); ofSetBtn.Margin = new Thickness(12, 0, 6, 0); ofSetBtn.ToolTip = "rows, imbalances, signals, hit rate, tape, the trading-chart badge";
             ofSetBtn.Click += delegate { var pa = active ?? (panes.Count > 0 ? panes[0] : null); if (pa != null && ofSettingsH != null) ofSettingsH(pa); }; ofBarRow.Children.Add(ofSetBtn);
+            var ofProfBtn = ofPill("", Card); ofProfBtn.Margin = new Thickness(6, 0, 0, 0); ofProfBtn.Tag = "of.profs"; ofProfBtn.ToolTip = "the VOLUME PROFILE (POC / value area) + the thin Δ DELTA PROFILE by the price axis — on / off (the 📊 VOLUME PROFILE view always shows them)";
+            Action paintProf = delegate { bool pOn = layerOf("OF.PROFS", 1) == 1; ofProfBtn.Content = (pOn ? "▥ PROFILES ON" : "▥ PROFILES OFF"); PaintBtn(ofProfBtn, pOn ? Tint(Cyan, 120) : Card); };
+            ofProfBtn.Click += delegate { layerModes["OF.PROFS"] = layerOf("OF.PROFS", 1) == 1 ? 0 : 1; saveWorkspace(); paintProf(); renderAll(); }; paintProf(); ofBarRow.Children.Add(ofProfBtn);
+            var ofLibBtn = ofPill("📥 TICK LIBRARY", Card); ofLibBtn.Margin = new Thickness(6, 0, 0, 0); ofLibBtn.Tag = "of.ticklib"; ofLibBtn.ToolTip = "download NinjaTrader's real ticks day by day, keep them for good, load them for testing"; ofLibBtn.Click += delegate { OpenTickLibrary(w, active != null ? active.Symbol : "MNQ"); }; ofBarRow.Children.Add(ofLibBtn);
             var ofBackBtn = ofPill(liveWindow ? "◀ BACK TO TRADING" : "◀ BACK TO THE CHART", Gold); ofBackBtn.Margin = new Thickness(6, 0, 0, 0); ofBarRow.Children.Add(ofBackBtn);
             ofBarRow.Children.Add(new TextBlock { Text = liveWindow ? "analysis only — orders are placed on the 📈 CHART tab • MNQ / MGC: the tabs under the chart" : "analysis only — replayed up to the replay clock • orders go out from the chart • MNQ / MGC: the tabs under the chart", Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0) });
 
             // ---- the ORDERFLOW DOCK (right side, only in the ORDERFLOW tab): what is going on in plain words, the BULLS vs BEARS fight, a trade
             // panel for the indicated trade, how to read the view, and the trades coming in. Updated 7 times a second while the tab is open.
             var ofDockSp = new StackPanel { Margin = new Thickness(8, 6, 8, 8) };
-            var ofDock = new Border { Visibility = Visibility.Collapsed, Width = 316, HorizontalAlignment = HorizontalAlignment.Right, Background = Panel, BorderBrush = Tint(Cyan, 110), BorderThickness = new Thickness(1, 0, 0, 0),
-                Child = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = ofDockSp } };
+            /* 🎯 BUILD 11s: the side panel = TABS, only one open — 🎯 SIGNAL • 📊 FLOW • 📚 BOOK • 📈 STATS • ⓘ GUIDE */
+            var tabSig = new StackPanel { Tag = "of.tab.SIGNAL" }; var tabFlow = new StackPanel { Tag = "of.tab.FLOW" }; var tabBook = new StackPanel { Tag = "of.tab.BOOK" }; var tabStats = new StackPanel { Tag = "of.tab.STATS" }; var tabGuide = new StackPanel { Tag = "of.tab.GUIDE" };
+            foreach (var tp0 in new[] { tabSig, tabFlow, tabBook, tabStats, tabGuide }) ofDockSp.Children.Add(tp0);
+            var ofTabRow = new UniformGrid { Columns = 5, Margin = new Thickness(6, 6, 6, 2) }; var ofTabBtns = new List<Tuple<string, Button, StackPanel>>(); string ofDockTab = "SIGNAL";
+            { var sv1 = layerOf("OF.DTAB", 0); var names0 = new[] { "SIGNAL", "FLOW", "BOOK", "STATS", "GUIDE" }; if (sv1 >= 0 && sv1 < names0.Length) ofDockTab = names0[sv1]; }
+            Action paintDockTabs = delegate { foreach (var tb0 in ofTabBtns) { bool on0 = tb0.Item1 == ofDockTab; PaintBtn(tb0.Item2, on0 ? Cyan : Card); tb0.Item3.Visibility = on0 ? Visibility.Visible : Visibility.Collapsed; } };
+            Action ofDockRefresh = null;
+            foreach (var tdef in new[] { Tuple.Create("SIGNAL", "🎯 SIGNAL", tabSig), Tuple.Create("FLOW", "📊 FLOW", tabFlow), Tuple.Create("BOOK", "📚 BOOK", tabBook), Tuple.Create("STATS", "📈 STATS", tabStats), Tuple.Create("GUIDE", "ⓘ GUIDE", tabGuide) })
+            {
+                var td = tdef; int tix = ofTabBtns.Count; var tb1 = Btn(td.Item2, Card); tb1.Height = 28; tb1.FontSize = 11; tb1.Margin = new Thickness(1, 0, 1, 0); tb1.Padding = new Thickness(2, 0, 2, 0); tb1.Tag = "of.dtab." + td.Item1;
+                tb1.Click += delegate { ofDockTab = td.Item1; layerModes["OF.DTAB"] = tix; saveWorkspace(); paintDockTabs(); if (ofDockRefresh != null) ofDockRefresh(); };
+                ofTabRow.Children.Add(tb1); ofTabBtns.Add(Tuple.Create(td.Item1, tb1, td.Item3));
+            }
+            var ofDockDp = new DockPanel(); DockPanel.SetDock(ofTabRow, Dock.Top); ofDockDp.Children.Add(ofTabRow); ofDockDp.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = ofDockSp });
+            var ofDock = new Border { Visibility = Visibility.Collapsed, Width = 344, HorizontalAlignment = HorizontalAlignment.Right, Background = Panel, BorderBrush = Tint(Cyan, 110), BorderThickness = new Thickness(1, 0, 0, 0), Tag = "of.dock", Child = ofDockDp };
             Grid.SetRow(ofDock, 3); root.Children.Add(ofDock);
             Func<string, SolidColorBrush, Border> dockCard = (head0, edge) => new Border { Background = Tint(Bg, 235), BorderBrush = Tint(edge, 140), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 7, 10, 8), Margin = new Thickness(0, 0, 0, 8) };
             // 1. the VERDICT: does everything agree?
             var vTitle = new TextBlock { Text = "📊 loading the order flow …", FontSize = 15, FontWeight = FontWeights.Bold, Foreground = Text, TextWrapping = TextWrapping.Wrap };
             var vSub = new TextBlock { Text = "", FontSize = 11, Foreground = Muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) };
-            var vSp = new StackPanel(); vSp.Children.Add(vTitle); vSp.Children.Add(vSub); var vCard = dockCard("", Cyan); vCard.Child = vSp; ofDockSp.Children.Add(vCard);
+            var vSp = new StackPanel(); vSp.Children.Add(vTitle); vSp.Children.Add(vSub); var vCard = dockCard("", Cyan); vCard.Child = vSp; tabSig.Children.Add(vCard);
+            /* 🎯 11s: the STRONG BUY / SELL card — the suggested STOP (beyond the defended level) / TARGET (the next volume node, else the plan's bracket) / size from the $ risk;
+               FILL ORDER fills the order panel only • TAKE = the chart's own BUY / SELL (asks first, every guard of the chart) • SKIP hides this signal */
+            var sgCardTitle = new TextBlock { Text = "", FontSize = 15, FontWeight = FontWeights.Bold, Foreground = Text, TextWrapping = TextWrapping.Wrap };
+            var sgCardBody = new TextBlock { Text = "", FontSize = 11.5, Foreground = Text, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 6), LineHeight = 17, Tag = "of.sigcard.body" };
+            var sgFill = ofPill("FILL ORDER", Card); sgFill.Tag = "of.sig.fill"; sgFill.ToolTip = "puts the size / stop / target into the chart's order panel — sends nothing";
+            var sgTake = ofPill("TAKE", Gold); sgTake.Tag = "of.sig.take"; sgTake.ToolTip = "the chart's own BUY / SELL with this stop / target (asks first; LIVE: the armed account and its limits)";
+            var sgSkip = ofPill("SKIP", Card); sgSkip.Tag = "of.sig.skip";
+            var sgBtnRow = new UniformGrid { Columns = 3 }; foreach (var b9 in new[] { sgFill, sgTake, sgSkip }) { b9.Margin = new Thickness(0, 0, 4, 0); b9.Height = 32; b9.FontSize = 12; sgBtnRow.Children.Add(b9); }
+            var sgCardSp = new StackPanel(); sgCardSp.Children.Add(sgCardTitle); sgCardSp.Children.Add(sgCardBody); sgCardSp.Children.Add(sgBtnRow);
+            var sgCard = dockCard("", Gold); sgCard.Child = sgCardSp; sgCard.Tag = "of.sigcard"; sgCard.Visibility = Visibility.Collapsed; tabSig.Children.Add(sgCard);
+            KeystoneOfPlan ofPlanNow = null; string ofPlanKey = ""; var ofSkipped = new HashSet<string>();
             // 2. TRADE FROM HERE: the indicated trade (asks first, then the 📈 CHART tab opens to manage it)
             Action<int> ofTradeH = null; int ofQty = Math.Max(1, layerOf("OF.QTY", 1));
-            var tSp = new StackPanel(); var tCard = dockCard("", Gold); tCard.Child = tSp; ofDockSp.Children.Add(tCard);
+            var tSp = new StackPanel(); var tCard = dockCard("", Gold); tCard.Child = tSp; tabSig.Children.Add(tCard);
             tSp.Children.Add(new TextBlock { Text = "⚡ TRADE FROM HERE", Foreground = Gold, FontSize = 12, FontWeight = FontWeights.Bold });
             var tArm = new TextBlock { Text = "", FontSize = 10.5, Foreground = Muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 1, 0, 5) }; tSp.Children.Add(tArm);
             var qRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
@@ -44944,7 +45084,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             ofBr.Click += delegate { layerModes["OF.BRK"] = ofBr.IsChecked == true ? 1 : 0; saveWorkspace(); }; tSp.Children.Add(ofBr);
             var tHint = new TextBlock { Text = liveWindow ? "market order on the chart's account • asks first • then the 📈 CHART tab opens to manage it" : "market order on the backtest account at the replay price • asks first • then the chart opens to manage it", Foreground = Muted, FontSize = 10, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) }; tSp.Children.Add(tHint);
             // 3. BULLS vs BEARS: the fight of the last 30 seconds (who hits the market harder), the speed, the big trades
-            var aCard = dockCard("", Cyan); var aSp = new StackPanel(); aCard.Child = aSp; ofDockSp.Children.Add(aCard);
+            var aCard = dockCard("", Cyan); var aSp = new StackPanel(); aCard.Child = aSp; tabFlow.Children.Add(aCard);
             aSp.Children.Add(new TextBlock { Text = "⚔ BULLS vs BEARS • last 30 seconds", Foreground = Cyan, FontSize = 12, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) });
             var arenaHost = new Border { Height = 118, CornerRadius = new CornerRadius(10), ClipToBounds = true }; aSp.Children.Add(arenaHost); double aW = 276, aH = 118;
             var aCap = new TextBlock { Text = "", FontSize = 12.5, FontWeight = FontWeights.Bold, Foreground = Text, Margin = new Thickness(0, 5, 0, 0) }; aSp.Children.Add(aCap);
@@ -44957,26 +45097,56 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var tt0 = new TextBlock { Text = hd, Foreground = Muted, FontSize = 10, FontWeight = FontWeights.Bold }; var tb0 = new TextBlock { Text = "…", Foreground = Text, FontSize = 11.5, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
                 var sp0 = new StackPanel(); sp0.Children.Add(tt0); sp0.Children.Add(tb0);
                 var bd0 = new Border { Background = Tint(Bg, 235), BorderBrush = Muted, BorderThickness = new Thickness(4, 0, 0, 0), CornerRadius = new CornerRadius(6), Padding = new Thickness(9, 5, 8, 6), Margin = new Thickness(0, 0, 0, 5), Child = sp0 };
-                ofDockSp.Children.Add(bd0); storyRows.Add(Tuple.Create(bd0, tt0, tb0));
+                (hd.StartsWith("🎯") || hd.StartsWith("💰") ? tabSig : tabFlow).Children.Add(bd0); storyRows.Add(Tuple.Create(bd0, tt0, tb0));
             }
             // 4b. 🧭 THE MARKET READING (like SpasiX for MT5's ANALYSIS): the trend (EMA 21 / 50 of this timeframe), the VWAP, the sessions open now,
             // today's gap (09:30 vs yesterday's 16:00) and the next high-impact news → LEAN LONG / LEAN SHORT / WAIT with the reasons (a reading, not a signal)
             var rdTitle = new TextBlock { Text = "🧭 MARKET READING", FontSize = 13.5, FontWeight = FontWeights.Bold, Foreground = Gold, TextWrapping = TextWrapping.Wrap };
             var rdBody = new TextBlock { Text = "…", FontSize = 11.5, Foreground = Text, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0), LineHeight = 17 };
-            var rdSp = new StackPanel(); rdSp.Children.Add(rdTitle); rdSp.Children.Add(rdBody); var rdCard = dockCard("", Gold); rdCard.Child = rdSp; ofDockSp.Children.Add(rdCard);
+            var rdSp = new StackPanel(); rdSp.Children.Add(rdTitle); rdSp.Children.Add(rdBody); var rdCard = dockCard("", Gold); rdCard.Child = rdSp; tabSig.Children.Add(rdCard);
             // 5. how to read the view on screen
             var helpT = new TextBlock { Text = "", Foreground = Text, FontSize = 11, TextWrapping = TextWrapping.Wrap }; var hCard = dockCard("", Muted); var hSp = new StackPanel(); hCard.Child = hSp; hCard.Margin = new Thickness(0, 4, 0, 8);
-            hSp.Children.Add(new TextBlock { Text = "ⓘ THIS VIEW", Foreground = Muted, FontSize = 10, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 2) }); hSp.Children.Add(helpT); ofDockSp.Children.Add(hCard);
+            hSp.Children.Add(new TextBlock { Text = "ⓘ THIS VIEW", Foreground = Muted, FontSize = 10, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 2) }); hSp.Children.Add(helpT); tabGuide.Children.Add(hCard);
             // 6. the trades coming in
             var tapeSp = new StackPanel(); var tpCard = dockCard("", Cyan); var tpSp = new StackPanel(); tpCard.Child = tpSp;
-            tpSp.Children.Add(new TextBlock { Text = "🧾 TRADES COMING IN", Foreground = Cyan, FontSize = 12, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 3) }); tpSp.Children.Add(tapeSp); ofDockSp.Children.Add(tpCard);
+            tpSp.Children.Add(new TextBlock { Text = "🧾 TRADES COMING IN", Foreground = Cyan, FontSize = 12, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 3) }); tpSp.Children.Add(tapeSp); tabFlow.Children.Add(tpCard);
+            /* 📊 FLOW extras: the delta every 15 s (bars), the absorption / divergence markers, the "fuel vs engine" read */
+            var fuelT = new TextBlock { Text = "", FontSize = 11.5, Foreground = Text, TextWrapping = TextWrapping.Wrap, LineHeight = 17 }; var fuelSp = new StackPanel(); fuelSp.Children.Add(new TextBlock { Text = "⛽ FUEL vs ENGINE", Foreground = Gold, FontSize = 12, FontWeight = FontWeights.Bold }); fuelSp.Children.Add(fuelT);
+            var fuelCard = dockCard("", Gold); fuelCard.Child = fuelSp; tabFlow.Children.Insert(1, fuelCard);
+            var dBarsHost = new Border { Height = 70, Tag = "of.flow.deltabars" }; var mkT = new TextBlock { Text = "", FontSize = 11, Foreground = Text, TextWrapping = TextWrapping.Wrap, LineHeight = 16 };
+            var dbSp = new StackPanel(); dbSp.Children.Add(new TextBlock { Text = "⚖ DELTA every 15 s (the last 5 minutes) • ⚠ ABSORPTION / DIVERGENCE", Foreground = Cyan, FontSize = 12, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap }); dbSp.Children.Add(dBarsHost); dbSp.Children.Add(mkT);
+            var dbCard = dockCard("", Cyan); dbCard.Child = dbSp; tabFlow.Children.Insert(2, dbCard);
+            /* 📚 BOOK: the resting orders (market depth, if the connection sends it) */
+            var bookT = new TextBlock { Text = "", FontSize = 11.5, FontFamily = new FontFamily("Consolas"), Foreground = Text, TextWrapping = TextWrapping.NoWrap, LineHeight = 16, Tag = "of.book.text" }; var bookSp = new StackPanel(); bookSp.Children.Add(new TextBlock { Text = "📚 ORDER BOOK • the orders WAITING at each price", Foreground = Cyan, FontSize = 12, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap }); bookSp.Children.Add(bookT);
+            bookSp.Children.Add(new TextBlock { Text = "They can be pulled at any time (no trade happened there). A big wall = where others want to trade; a wall that gets eaten = strength through it. Needs market depth (Level 2) from your data connection.", Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
+            var bookCard = dockCard("", Cyan); bookCard.Child = bookSp; tabBook.Children.Add(bookCard);
+            /* 📈 STATS: each signal's hit rate on the loaded real ticks + the setup journal + where the ticks come from */
+            var statT = new TextBlock { Text = "", FontSize = 11.5, Foreground = Text, TextWrapping = TextWrapping.Wrap, LineHeight = 17, Tag = "of.stats.text" }; var statSp = new StackPanel(); statSp.Children.Add(new TextBlock { Text = "📈 HOW OFTEN EACH SIGNAL WORKED", Foreground = Cyan, FontSize = 12, FontWeight = FontWeights.Bold }); statSp.Children.Add(statT);
+            var statCard = dockCard("", Cyan); statCard.Child = statSp; tabStats.Children.Add(statCard);
+            /* ⓘ GUIDE: how to read order flow, in plain words */
+            var guideSp = new StackPanel(); guideSp.Children.Add(new TextBlock { Text = "ⓘ HOW TO READ ORDER FLOW", Foreground = Gold, FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) });
+            foreach (var g in OrderFlowGuide()) { guideSp.Children.Add(new TextBlock { Text = g[0], Foreground = Cyan, FontSize = 12, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 6, 0, 1) }); guideSp.Children.Add(new TextBlock { Text = g[1], Foreground = Text, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, LineHeight = 17 }); }
+            var guideCard = dockCard("", Gold); guideCard.Child = guideSp; guideCard.Tag = "of.guide"; tabGuide.Children.Insert(0, guideCard);
+            paintDockTabs();
             var tapeRows = new List<TextBlock>(); for (int k = 0; k < 10; k++) { var tr0 = new TextBlock { FontFamily = new FontFamily("Consolas"), FontSize = 11, Text = "" }; tapeSp.Children.Add(tr0); tapeRows.Add(tr0); }
-            int ofIndicated = 0; Func<long, string> sgnShort = v => (v > 0 ? "+" : v < 0 ? "−" : "") + (Math.Abs(v) >= 10000 ? (Math.Abs(v) / 1000.0).ToString("0.#", CultureInfo.InvariantCulture) + "k" : Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture));
+            int ofIndicated = 0; string ofBadgeKey = ""; DateTime ofStatsAt = DateTime.MinValue; Func<long, string> sgnShort = v => (v > 0 ? "+" : v < 0 ? "−" : "") + (Math.Abs(v) >= 10000 ? (Math.Abs(v) / 1000.0).ToString("0.#", CultureInfo.InvariantCulture) + "k" : Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture));
             Action ofDockUpdate = delegate
             {
                 try
                 {
                     var pa = active; bool flash = DateTime.Now.Millisecond < 500;
+                    {   /* 🎯 11s: the numbers strip + the SOURCE BADGE (grey = no real trades: nothing is shown, never an estimate from candles) */
+                        long nT = pa != null ? pa.OfTicks.Count : 0, nQ = pa != null ? pa.OfQuoted : 0; string bkey = KeystoneOfSource.Badge(nT, nQ) + "|" + (pa != null ? pa.OfLib : "");
+                        if (bkey != ofBadgeKey) { ofBadgeKey = bkey; ofNumBadge.Child = OfBadgeChip(nT, nQ, pa != null && nT > 0 ? pa.OfLib : ""); }
+                        var fpN = pa != null && nT > 0 ? pa.OfFps : null; var flN = fpN != null && fpN.Count > 0 ? fpN[fpN.Count - 1] : null;
+                        if (flN == null || flN.Empty) { foreach (var tN in new[] { ofNumCandle, ofNumCvd, ofNumBuy, ofNumCtl }) { tN.Text = "—"; tN.Foreground = Muted; } }
+                        else
+                        {
+                            ofNumCandle.Text = sgnShort(flN.Delta); ofNumCandle.Foreground = flN.Delta >= 0 ? Green : Red; ofNumCvd.Text = sgnShort(flN.Cvd); ofNumCvd.Foreground = flN.Cvd >= 0 ? Green : Red;
+                            long bb5 = 0, ss5 = 0; for (int i = Math.Max(0, fpN.Count - 5); i < fpN.Count; i++) { bb5 += fpN[i].Buy; ss5 += fpN[i].Sell; }
+                            double shN = bb5 + ss5 > 0 ? 100.0 * bb5 / (bb5 + ss5) : 50; ofNumBuy.Text = shN.ToString("0", CultureInfo.InvariantCulture) + " %"; ofNumBuy.Foreground = shN >= 55 ? Green : shN <= 45 ? Red : Text; ofNumBuy.ToolTip = "the share bought at the ask in the last 5 candles";
+                        }
+                    }
                     helpT.Text = ofSub == "SIGNALS" ? "▲ / ▼ on the chart = a buy / sell setup; the % = how often that setup reached its target before its stop on the loaded history (·n = how many). Worth a look: ≥ " + layerOf("OF.BMINP", 55) + " % with n ≥ " + layerOf("OF.BMINN", 20) + ", at a POC / VAH / VAL line."
                         : ofSub == "PROFILE" ? "The bars on the right = where today's contracts traded. POC (gold) = the most traded price, a magnet. VAH – VAL = the value area: outside it and holding = a move; back inside = often back to the POC. Thin rows get crossed fast, thick rows stop price."
                         : ofSub == "DELTA" ? "Under the candles: VOLUME, BUY, SELL and DELTA of each candle (green = more bought at the ask). Strong = price and delta the same way. Warning = a new high with a falling delta, or a big red delta that does not push price lower (sellers absorbed)."
@@ -45015,6 +45185,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                         else loc = "INSIDE VALUE between the lines (POC " + fmt(pr.Poc) + ") — no edge from the location here";
                     }
                     int flowSide = ctl60.Item1;
+                    { string cw = ctl60.Item3.Split('•')[0].Trim(); ofNumCtl.Text = cw.StartsWith("BUYERS IN") ? "BUYERS" : cw.StartsWith("SELLERS IN") ? "SELLERS" : cw.Contains("ABSORBED") ? (cw.StartsWith("BUYERS") ? "BUYERS ABSORBED" : "SELLERS ABSORBED") : cw.StartsWith("quiet") ? "QUIET" : "EVEN"; ofNumCtl.Foreground = ctl60.Item1 > 0 ? Green : ctl60.Item1 < 0 ? Red : Gold; ofNumCtl.ToolTip = "the last minute: " + ctl60.Item3; }
                     string flowT = "last minute: " + ctl60.Item3 + " • " + spd.ToString("0.#", CultureInfo.InvariantCulture) + " contracts / sec";
                     // ⚖ delta of the last 5 candles vs the price
                     var fp = pa.OfFps; int dSide = 0; string dT = "—";
@@ -45103,6 +45274,68 @@ namespace NinjaTrader.NinjaScript.AddOns
                         trr.Text = t.Time.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + "  " + fmt(t.Price) + "  " + t.Size.ToString(CultureInfo.InvariantCulture).PadLeft(4) + (t.Side > 0 ? "  BUY " : "  SELL") + (big ? "  💥" : "");
                         trr.Foreground = t.Side > 0 ? Green : Red; trr.FontWeight = big ? FontWeights.Bold : FontWeights.Normal; trr.Background = big ? Tint(t.Side > 0 ? Green : Red, 60) : null;
                     }
+                    // 🎯 11s: the STRONG BUY / SELL card of the current setup (confirmed, else the raw one) with its suggested stop / target / size
+                    var cs0 = sg ?? rawL; string pk0 = cs0 == null ? "" : pa.Symbol + "|" + cs0.Time.Ticks + "|" + cs0.Dir;
+                    if (cs0 == null || ofSkipped.Contains(pk0)) { sgCard.Visibility = Visibility.Collapsed; ofPlanNow = null; ofPlanKey = ""; }
+                    else
+                    {
+                        double pvS = KeystoneMoveStudy.PointValue(pa.Symbol), riskS = layerOf("OF.RISK", 200); var plS = KeystoneOfDesk.Plan(cs0, fp, pr, px, tick, pvS, riskS, layerOf("OF.TGT", 40), 2);
+                        sgCard.Visibility = Visibility.Visible; ofPlanKey = pk0; ofPlanNow = plS; SolidColorBrush dc0 = cs0.Dir > 0 ? Green : Red; bool strongS = ofIndicated == cs0.Dir;
+                        if (plS == null) { sgCardTitle.Text = (cs0.Dir > 0 ? "▲ BUY " : "▼ SELL ") + cs0.Kind + " — no plan"; sgCardTitle.Foreground = Muted; sgCardBody.Text = "the price already went through the level this setup defended — no stop to put beyond it (no made-up stop)"; sgFill.IsEnabled = sgTake.IsEnabled = false; sgCard.BorderBrush = Tint(Muted, 120); }
+                        else
+                        {
+                            sgFill.IsEnabled = sgTake.IsEnabled = true;
+                            sgCardTitle.Text = (strongS ? "✅ STRONG " : sg == null ? "⏳ RAW " : "👀 ") + (cs0.Dir > 0 ? "▲ BUY " : "▼ SELL ") + plS.Qty + " " + pa.Symbol + " • " + cs0.Kind; sgCardTitle.Foreground = strongS ? dc0 : sg == null ? Muted : Gold;
+                            sgCardBody.Text = "ENTRY ≈ " + fmt(plS.Entry) + " (market)\n"
+                                + "STOP " + fmt(plS.Stop) + "  (−" + fmt(plS.StopPts) + " pts • −" + Cash(plS.RiskUsd) + ") — beyond " + plS.Level + "\n"
+                                + "TARGET " + fmt(plS.Target) + "  (+" + fmt(plS.TargetPts) + " pts • +" + Cash(plS.RewardUsd) + ") — " + plS.TargetWhy + "\n"
+                                + "SIZE " + plS.Qty + " for ≈ " + Cash(riskS) + " risk • reward : risk " + (plS.StopPts > 0 ? (plS.TargetPts / plS.StopPts).ToString("0.0", CultureInfo.InvariantCulture) : "—") + "\n"
+                                + (strongS ? "signal, location, flow and delta agree" : sg == null ? "not confirmed yet — wait for the closed candle" : vSub.Text.Split('\n')[0]);
+                            sgCard.BorderBrush = strongS ? (flash ? dc0 : Tint(dc0, 150)) : Tint(Gold, 120);
+                            sgTake.Content = cs0.Dir > 0 ? "▲ TAKE BUY" : "▼ TAKE SELL"; PaintBtn(sgTake, cs0.Dir > 0 ? Green : Red);
+                        }
+                    }
+                    if (ofDockTab == "FLOW")
+                    {
+                        // ⛽ fuel vs engine over the last 5 candles
+                        if (fp != null && fp.Count >= 6) { var a0 = fp[fp.Count - 6]; var a1 = fp[fp.Count - 1]; long vol5 = 0; for (int i = fp.Count - 5; i < fp.Count; i++) vol5 += fp[i].Volume; var fe = KeystoneOfDesk.FuelEngine(a1.Cvd - a0.Cvd, ((a1.Empty ? px : a1.Close) - (a0.Empty ? px : a0.Close)) / tick, vol5); fuelT.Text = fe.Item2 + "\n(the last 5 candles • fuel = the aggressive orders, engine = the price)"; fuelT.Foreground = fe.Item1 > 0 ? Green : fe.Item1 < 0 ? Red : Text; }
+                        else fuelT.Text = "waiting for 6 candles of real trades";
+                        // ⚖ the delta every 15 s
+                        var sl = KeystoneOrderFlow.DeltaSlices(tk, endN, now, 15, 20); long mx = Math.Max(1, sl.Select(v => Math.Abs(v)).DefaultIfEmpty(1).Max()); var cvB = new System.Windows.Controls.Canvas { Height = 70, Width = 312 }; double bwB = 312.0 / sl.Length;
+                        cvB.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = 312, Y1 = 35, Y2 = 35, Stroke = Muted, StrokeThickness = 1, Opacity = 0.5 });
+                        for (int i = 0; i < sl.Length; i++) { double hB = 33.0 * Math.Abs(sl[i]) / mx; if (hB < 0.5) continue; var rB = new System.Windows.Shapes.Rectangle { Width = Math.Max(2, bwB - 3), Height = hB, Fill = sl[i] >= 0 ? Green : Red, Opacity = i == sl.Length - 1 ? 1 : 0.75 }; System.Windows.Controls.Canvas.SetLeft(rB, i * bwB + 1); System.Windows.Controls.Canvas.SetTop(rB, sl[i] >= 0 ? 35 - hB : 35); cvB.Children.Add(rB); }
+                        dBarsHost.Child = cvB;
+                        var mks = (pa.OfSigs ?? new List<KeystoneOfSignal>()).Where(x => x.Kind == "ABSORB" || x.Kind == "DIVERGE").Reverse().Take(5).ToList();
+                        mkT.Text = mks.Count == 0 ? "no absorption / divergence in the loaded candles" : string.Join("\n", mks.Select(x => tzShow(x.Time).ToString("HH:mm", CultureInfo.InvariantCulture) + "  " + (x.Dir > 0 ? "▲ " : "▼ ") + x.Kind + " @ " + fmt(x.Price) + (double.IsNaN(x.Prob) ? "" : " • " + x.Prob.ToString("0", CultureInfo.InvariantCulture) + "% of " + x.N)));
+                    }
+                    else if (ofDockTab == "BOOK")
+                    {
+                        var dep = pa.OfDepth as OfDepthTap;
+                        if (!liveWindow) bookT.Text = "the order book exists only LIVE — NinjaTrader keeps no history of it\n(the replay has the trades, not the resting orders)";
+                        else if (dep == null || dep.Count == 0) bookT.Text = dep != null && dep.Problem != "" ? "no market depth: " + dep.Problem : "waiting for market depth (Level 2) from the connection …";
+                        else
+                        {
+                            var asks = dep.Side(true, 8); var bids = dep.Side(false, 8); double mxB = Math.Max(1, asks.Concat(bids).Select(x => x[1]).DefaultIfEmpty(1).Max()); var sbB = new StringBuilder();
+                            Func<double, string> barB = v => new string('█', (int)Math.Max(1, Math.Round(12 * v / mxB)));
+                            foreach (var a in asks.AsEnumerable().Reverse()) sbB.Append("ASK " + fmt(a[0]).PadLeft(9) + " " + a[1].ToString("0", CultureInfo.InvariantCulture).PadLeft(5) + " " + barB(a[1]) + "\n");
+                            sbB.Append("──── last " + fmt(px) + " ────\n");
+                            foreach (var b in bids) sbB.Append("BID " + fmt(b[0]).PadLeft(9) + " " + b[1].ToString("0", CultureInfo.InvariantCulture).PadLeft(5) + " " + barB(b[1]) + "\n");
+                            double sa = asks.Sum(x => x[1]), sbd = bids.Sum(x => x[1]); sbB.Append("resting: " + sbd.ToString("0", CultureInfo.InvariantCulture) + " to buy vs " + sa.ToString("0", CultureInfo.InvariantCulture) + " to sell (" + (sa + sbd > 0 ? (100 * sbd / (sa + sbd)).ToString("0", CultureInfo.InvariantCulture) : "–") + " % bids)");
+                            bookT.Text = sbB.ToString();
+                        }
+                    }
+                    else if (ofDockTab == "STATS" && (DateTime.Now - ofStatsAt).TotalSeconds >= 3)
+                    {
+                        ofStatsAt = DateTime.Now; var sbS = new StringBuilder(); var IC5 = CultureInfo.InvariantCulture;
+                        sbS.Append("on the loaded real trades (" + KeystoneOfSource.Badge(tk.Count, pa.OfQuoted) + (pa.OfLib != "" ? " • " + pa.OfLib : "") + ")\n+" + layerOf("OF.TGT", 40) + " ticks before −" + layerOf("OF.STP", 40) + ", within " + layerOf("OF.HOR", 30) + " candles:\n");
+                        Func<Dictionary<string, Tuple<int, int>>, string, string> hr = (d0, k0) => { Tuple<int, int> v0; return d0 != null && d0.TryGetValue(k0, out v0) && v0.Item2 > 0 ? (100.0 * v0.Item1 / v0.Item2).ToString("0", IC5) + " % of " + v0.Item2 : "—"; };
+                        foreach (var kd in new[] { "STACKED", "ABSORB", "DIVERGE" }) sbS.Append("  " + kd.PadRight(8) + " ▲ " + hr(pa.OfStats, kd + "|1") + "   ▼ " + hr(pa.OfStats, kd + "|-1") + "\n");
+                        sbS.Append("  ✅ CONFIRMED ▲ " + hr(pa.OfConfStats, "CONFIRMED|1") + "   ▼ " + hr(pa.OfConfStats, "CONFIRMED|-1") + "\n");
+                        var jr = KeystoneOfJournal.All().Where(a => a.Length >= 6 && a[1] == pa.Symbol).ToList();
+                        if (jr.Count > 0) { sbS.Append("\n📒 SETUP JOURNAL (" + pa.Symbol + ", every decided ✅ setup):\n"); foreach (var g in jr.GroupBy(a => a[4] + " " + a[3]).OrderBy(g => g.Key)) { int wn = g.Count(a => a[5] == "WIN"); sbS.Append("  " + g.Key + ": " + wn + " / " + g.Count() + " won (" + (100.0 * wn / g.Count()).ToString("0", IC5) + " %)\n"); } }
+                        try { var dsS = Enumerable.Range(0, 30).Select(k => KeystoneTickLib.SessionOfTick(DateTime.Now).AddDays(-k)).Where(KeystoneTickLib.IsSessionDay).Take(20).ToList(); sbS.Append("\n📥 TICK LIBRARY " + pa.Symbol + ": " + KeystoneTickLib.CoverageText(KeystoneTickLib.RealDays(sfolder, pa.Symbol, dsS), dsS.Count) + " (the last 20 sessions)"); } catch { }
+                        sbS.Append("\n\na hit rate is measured only on setups FINISHED before each signal (no look-ahead); a small n means little proof."); statT.Text = sbS.ToString();
+                    }
                 }
                 catch (Exception exD) { vTitle.Text = "📊 ORDERFLOW • " + exD.Message; }
             };
@@ -45123,7 +45356,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     else { Tuple<GridLength, double> sv; if (ofSideSave.TryGetValue(pn, out sv)) { pn.SideCol.MinWidth = sv.Item2; pn.SideCol.Width = sv.Item1; } }
                 }
                 if (!on) ofSideSave.Clear();
-                ofDock.Visibility = on ? Visibility.Visible : Visibility.Collapsed; tabs.Margin = on ? new Thickness(0, 0, 320, 0) : tabsMargin0; if (ofDualHost != null) ofDualHost.Margin = on ? new Thickness(0, 0, 320, 0) : new Thickness(0);
+                ofDock.Visibility = on ? Visibility.Visible : Visibility.Collapsed; tabs.Margin = on ? new Thickness(0, 0, 348, 0) : tabsMargin0; if (ofDualHost != null) ofDualHost.Margin = on ? new Thickness(0, 0, 348, 0) : new Thickness(0);
                 if (on && layerOf("OF.TAB", 1) != 1) { layerModes["OF.TAB"] = 1; saveWorkspace(); paintOfTab(); }   // opening the tab = the order flow ON (it was left OFF: an empty tab)
                 if (on) { var paOn = active; if (paOn != null && paOn.OfRun != null) paOn.OfRun(true); }
                 if (on) { ofDockUpdate(); ofDockTimer.Start(); } else ofDockTimer.Stop();
@@ -45138,19 +45371,30 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (tOn) { if (pa != null && pa.OfRun != null) pa.OfRun(true); } else if (!badge) foreach (var p2 in panes) if (p2.OfRun != null) p2.OfRun(false);
                 ofDockUpdate(); renderAll();
             };
-            ofTradeH = dir =>
+            Action<int, int, double, double, string> ofTake = null;
+            ofTradeH = dir => { var pa0 = active; double tk0 = pa0 != null && pa0.Trader != null && pa0.Trader.Tick > 0 ? pa0.Trader.Tick : 0.25; bool br0 = ofBr.IsChecked == true; if (ofTake != null) ofTake(dir, ofQty, br0 ? layerOf("OF.STP", 40) * tk0 : 0, br0 ? layerOf("OF.TGT", 40) * tk0 : 0, ""); };
+            sgFill.Click += delegate
+            {   /* FILL ORDER: the order panel's fields only — nothing is sent */
+                var pa = active; var pl = ofPlanNow; if (pa == null || pl == null || pa.Qty == null) return;
+                pa.OrderType.SelectedIndex = 0; pa.Qty.Text = pl.Qty.ToString(CultureInfo.InvariantCulture); pa.Sl.Text = pl.StopPts.ToString("0.##", CultureInfo.InvariantCulture); pa.Tp.Text = pl.TargetPts.ToString("0.##", CultureInfo.InvariantCulture);
+                vSub.Text = "✓ the order panel is filled: " + (pl.Dir > 0 ? "BUY " : "SELL ") + pl.Qty + " • stop " + fmt(pl.StopPts) + " pts • target " + fmt(pl.TargetPts) + " pts — press BUY / SELL on the 📈 CHART tab (nothing was sent)";
+            };
+            sgTake.Click += delegate { var pl = ofPlanNow; if (pl == null || ofTake == null) return; ofTake(pl.Dir, pl.Qty, pl.StopPts, pl.TargetPts, "🎯 suggested by the ORDERFLOW signal: stop beyond " + pl.Level + " • target " + pl.TargetWhy); };
+            sgSkip.Click += delegate { if (ofPlanKey != "") ofSkipped.Add(ofPlanKey); sgCard.Visibility = Visibility.Collapsed; ofPlanNow = null; };
+            ofDockRefresh = delegate { ofStatsAt = DateTime.MinValue; ofDockUpdate(); };
+            ofTake = (dir, qtyT, stPT, tgPT, whyT) =>
             {
                 // the trade from the ORDERFLOW tab = the chart's own BUY / SELL (same armed account, same limits): asks first, then the chart opens
                 var pa = active; if (pa == null || pa.Trader == null || pa.DoBuy == null) return;
                 if (liveWindow && (pa.Link == null || !pa.Link.Armed || !pa.Link.Connected || pa.Link.Locked)) { KBox(w, "LIVE TRADING DISABLED for " + pa.Symbol + "\n\nPress ARM REAL ORDERS on the 📈 CHART tab first (once per session).", "ORDERFLOW • TRADE", MessageBoxButton.OK, MessageBoxImage.Information); return; }
-                double tick = pa.Trader.Tick > 0 ? pa.Trader.Tick : 0.25, pv = KeystoneMoveStudy.PointValue(pa.Symbol); bool br = ofBr.IsChecked == true;
-                double stP = br ? layerOf("OF.STP", 40) * tick : 0, tgP = br ? layerOf("OF.TGT", 40) * tick : 0, px = pa.Trader.Price;
-                string msg = (dir > 0 ? "▲ BUY " : "▼ SELL ") + ofQty + " " + pa.Symbol + " at market now (≈ " + fmt(px) + ")?"
-                    + (br ? "\n\nStop " + fmt(stP) + " pts → " + fmt(px - dir * stP) + "  (−" + Cash(stP * pv * ofQty) + ")\nTarget " + fmt(tgP) + " pts → " + fmt(px + dir * tgP) + "  (+" + Cash(tgP * pv * ofQty) + ")" : "\n\nNo stop / target — set them on the chart.")
+                double tick = pa.Trader.Tick > 0 ? pa.Trader.Tick : 0.25, pv = KeystoneMoveStudy.PointValue(pa.Symbol); bool br = stPT > 0 || tgPT > 0; int ofQtyT = Math.Max(1, qtyT);
+                double stP = stPT, tgP = tgPT, px = pa.Trader.Price;
+                string msg = (dir > 0 ? "▲ BUY " : "▼ SELL ") + ofQtyT + " " + pa.Symbol + " at market now (≈ " + fmt(px) + ")?"
+                    + (br ? "\n\nStop " + fmt(stP) + " pts → " + fmt(px - dir * stP) + "  (−" + Cash(stP * pv * ofQtyT) + ")\nTarget " + fmt(tgP) + " pts → " + fmt(px + dir * tgP) + "  (+" + Cash(tgP * pv * ofQtyT) + ")" : "\n\nNo stop / target — set them on the chart.") + (string.IsNullOrEmpty(whyT) ? "" : "\n\n" + whyT)
                     + (ofIndicated != 0 && ofIndicated != dir ? "\n\n⚠ The order flow points the OTHER way right now." : "") + (liveWindow ? "\n\nThe 📈 CHART tab opens to manage it." : "\n\nREPLAY (backtest account) • the chart opens to manage it.");
                 if (KBox(w, msg, "ORDERFLOW • TRADE", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
                 if (ofViewOn && ofExitH != null) ofExitH();   // back to the trading chart first: the order goes out from there
-                pa.OrderType.SelectedIndex = 0; pa.Qty.Text = ofQty.ToString(CultureInfo.InvariantCulture); pa.Sl.Text = stP.ToString(CultureInfo.InvariantCulture); pa.Tp.Text = tgP.ToString(CultureInfo.InvariantCulture);
+                pa.OrderType.SelectedIndex = 0; pa.Qty.Text = ofQtyT.ToString(CultureInfo.InvariantCulture); pa.Sl.Text = stP.ToString(CultureInfo.InvariantCulture); pa.Tp.Text = tgP.ToString(CultureInfo.InvariantCulture);
                 if (dir > 0) pa.DoBuy(); else pa.DoSell();
             };
             ofBackBtn.Click += delegate { if (ofExitH != null) ofExitH(); };
@@ -45176,14 +45420,68 @@ namespace NinjaTrader.NinjaScript.AddOns
                     for (int q = endB - 1; q >= 0 && q >= endB - 400 && tk[q].Time >= nowB.AddSeconds(-3); q--) if (tk[q].Size >= bigB) { boomQ = tk[q].Side > 0 ? tk[q].Size : -tk[q].Size; break; }
                     bool quietB = fB[0] + fB[1] == 0; SolidColorBrush capB = quietB ? Muted : ctB.Item1 > 0 ? Green : ctB.Item1 < 0 ? Red : Gold;
                     var sp = new StackPanel(); sp.Children.Add(buildArena(hdrPos, shB, ctB.Item1, boomQ, 248, 58, flB));
+                    sp.Children.Add(new TextBlock { Text = KeystoneOfSource.Badge(tk.Count, pa.OfQuoted), Foreground = OfBadgeBrush(tk.Count, pa.OfQuoted), FontSize = 10, FontWeight = FontWeights.Bold, Margin = new Thickness(2, 0, 0, 1), Tag = "of.badge.battle" });
                     sp.Children.Add(new TextBlock { Text = pa.Symbol + " • " + (quietB ? "quiet" : (ctB.Item1 > 0 ? "🐂 " : ctB.Item1 < 0 ? "🐻 " : "⚔ ") + ctB.Item3.Split('•')[0].Trim()) + (spdB >= 5 ? " • ⚡ FAST" : ""), Foreground = capB, FontSize = 10.5, FontWeight = FontWeights.Bold, Margin = new Thickness(2, 3, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
                     hdrArena.Child = sp; hdrArena.BorderBrush = Tint(capB, 150); hdrArena.Visibility = Visibility.Visible;
                 }
                 catch { hdrArena.Visibility = Visibility.Collapsed; }
             };
             hdrTimer.Start(); w.Closed += delegate { hdrTimer.Stop(); };
+            if (liveWindow)
+            {   /* 📥 BUILD 11s — ● LIVE TRADING saves today's live trades into the TICK LIBRARY (☰ TOOLS switch, on by default): its own MarketData tap per instrument
+                   (the same OfLiveTap: Last + bid / ask → side), drained every 5 s and appended on a background thread to TickCache\<SYM>\live\<day>.live. Files only. */
+                var recTaps = new Dictionary<string, OfLiveTap>(); var recGate = new object(); string recFolder = StudioFolder();
+                var recTimer = new DispatcherTimer(DispatcherPriority.Background, w.Dispatcher) { Interval = TimeSpan.FromSeconds(5) };
+                Action<bool> recDrain = final =>
+                {
+                    bool on = layerOf("TICKREC", 1) == 1;
+                    foreach (var pnR in panes.ToList())
+                    {
+                        string symR = pnR.Symbol; if (string.IsNullOrEmpty(symR)) continue; OfLiveTap tapR;
+                        if (!on || final) { if (recTaps.TryGetValue(symR, out tapR)) { tapR.Stop(); if (!on) recTaps.Remove(symR); } if (!on) continue; }
+                        if (!recTaps.TryGetValue(symR, out tapR)) { if (final) continue; var instR = ofInstH != null ? ofInstH(symR) : null; if (instR == null) continue; tapR = StartOfTap(instR); recTaps[symR] = tapR; continue; }
+                        List<KeystoneOfTick> batch; lock (tapR.Gate) { batch = tapR.Fresh.ToList(); tapR.Fresh.Clear(); } if (batch.Count == 0) continue;
+                        System.Threading.Tasks.Task.Factory.StartNew(() => { lock (recGate) { try { KeystoneTickLib.AppendLive(recFolder, symR, batch); } catch { } } });   // a failed write is silent
+                    }
+                };
+                recTimer.Tick += delegate { try { recDrain(false); } catch { } }; recTimer.Start();
+                w.Closed += delegate { recTimer.Stop(); try { recDrain(true); } catch { } };
+            }
             ofGoH = delegate { if (!ofViewOn) setOfView(true); else { paintOfBar(); renderAll(); } };   // LIVE TRADING replaces both with its tab bar
             ofExitH = delegate { if (ofViewOn) setOfView(false); };
+            studioOfDesk = cmd =>
+            {   /* 🎯 11s test hook (the stand-in dispatcher runs no background build): OPEN / CLOSE / TAB x / TICKS n q (synthetic real trades → a synchronous build) /
+                   NOTICKS / SIGNAL (a stacked buy on the last candle) / STRIP / CARD / FILL / TAKE / SKIP / DOCK (every text of the open tab) */
+                var c = (cmd ?? "").Trim().ToUpperInvariant(); var pa = active; Action<Button> click = b9 => b9.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Func<object, string> texts = r0 => string.Join(" | ", RsimTexts(r0));
+                if (c == "OPEN") { if (ofGoH != null) ofGoH(); ofDockUpdate(); return ofViewOn ? "OPEN" : "CLOSED"; }
+                if (c == "CLOSE") { if (ofExitH != null) ofExitH(); return ofViewOn ? "OPEN" : "CLOSED"; }
+                if (c.StartsWith("TAB ")) { var tb9 = ofTabBtns.FirstOrDefault(x => x.Item1 == c.Substring(4)); if (tb9 == null) return "no tab"; click(tb9.Item2); ofDockUpdate(); return texts(tb9.Item3); }
+                if (pa == null || pa.Trader == null) return "no pane";
+                if (c.StartsWith("TICKS "))
+                {
+                    var a9 = c.Split(' '); int n9 = int.Parse(a9[1], CultureInfo.InvariantCulture); double qs = double.Parse(a9[2], CultureInfo.InvariantCulture); var rnd = new Random(7); var cs9 = pa.Candles; var l9 = new List<KeystoneOfTick>();
+                    int per = Math.Max(1, n9 / Math.Max(1, cs9.Count));
+                    for (int i = 0; i < cs9.Count; i++) { var cb = cs9[i]; var t0 = i > 0 ? cs9[i - 1].Time : cb.Time.AddMinutes(-pa.Tf); for (int k = 0; k < per; k++) { double px9 = cb.Low + (cb.High - cb.Low) * rnd.NextDouble(); px9 = Math.Round(px9 / 0.25) * 0.25; l9.Add(new KeystoneOfTick { Time = t0.AddMilliseconds(1 + (cb.Time - t0).TotalMilliseconds * (k + 0.5) / per), Price = px9, Size = 1 + rnd.Next(5), Side = rnd.Next(2) == 0 ? 1 : -1, Quoted = rnd.NextDouble() < qs }); } }
+                    pa.OfOn = true; pa.OfTicks = l9; pa.OfQuoted = l9.Count(x => x.Quoted); pa.OfFrom = l9.Count > 0 ? l9[0].Time.AddMilliseconds(-1) : DateTime.MaxValue; pa.OfLib = "test trades";
+                    var s9 = new KeystoneOfSettings(); var wins9 = new List<Tuple<DateTime, DateTime>>(); for (int i = 0; i < cs9.Count; i++) wins9.Add(Tuple.Create(i > 0 ? cs9[i - 1].Time : cs9[i].Time.AddMinutes(-pa.Tf), cs9[i].Time));
+                    var fps9 = KeystoneOfSource.FootprintsOrNone(l9, wins9, 0.25, s9); pa.OfI0 = 0; pa.OfFps = fps9; pa.OfProf = fps9 == null ? null : KeystoneOrderFlow.Profile(fps9, 0.25, s9); pa.OfSigs = fps9 == null ? new List<KeystoneOfSignal>() : KeystoneOrderFlow.Signals(fps9, 0.25, s9); pa.OfStats = fps9 == null ? null : KeystoneOrderFlow.Score(pa.OfSigs, fps9, 0.25, s9); pa.OfConf = new List<KeystoneOfSignal>(); pa.OfConfStats = null;
+                    pa.OfKey = "test"; pa.OfBuiltAt = DateTime.Now; render(pa); ofDockUpdate(); return KeystoneOfSource.Badge(pa.OfTicks.Count, pa.OfQuoted) + " • " + pa.OfTicks.Count + " trades • " + (fps9 == null ? 0 : fps9.Count) + " candles";
+                }
+                if (c == "NOTICKS") { pa.OfTicks = new List<KeystoneOfTick>(); pa.OfQuoted = 0; pa.OfFps = null; pa.OfProf = null; pa.OfSigs = null; pa.OfLib = ""; render(pa); ofDockUpdate(); return KeystoneOfSource.Badge(0, 0); }
+                if (c == "SIGNAL")
+                {
+                    var fp9 = pa.OfFps; if (fp9 == null || fp9.Count == 0) return "no footprints"; layerModes["OF.ONLYCONF"] = 0; int lb = fp9.Count - 1; var f9 = fp9[lb]; double pxN = pa.Trader.Price;
+                    f9.Stacks.Add(new KeystoneOfStack { Lo = pxN - 3, Hi = pxN - 2, Side = 1, Count = 3 }); pa.OfSigs = new List<KeystoneOfSignal> { new KeystoneOfSignal { Bar = lb, Dir = 1, Kind = "STACKED", Price = pxN, Time = f9.End, Why = "test" } }; ofDockUpdate(); return "signal";
+                }
+                if (c == "STRIP") return texts(ofBar);
+                if (c == "CARD") return (sgCard.Visibility == Visibility.Visible ? "VISIBLE" : "HIDDEN") + " | " + sgCardTitle.Text + " | " + sgCardBody.Text;
+                if (c == "FILL") { click(sgFill); return pa.Qty.Text + "|" + pa.Sl.Text + "|" + pa.Tp.Text; }
+                if (c == "TAKE") { click(sgTake); return "position " + pa.Trader.Position + " | view " + (ofViewOn ? "ORDERFLOW" : "CHART"); }
+                if (c == "SKIP") { click(sgSkip); ofDockUpdate(); return sgCard.Visibility == Visibility.Visible ? "VISIBLE" : "HIDDEN"; }
+                if (c == "DOCK") return texts(ofDock);
+                return "?";
+            };
             }
             if (liveWindow)
             {
@@ -46236,6 +46534,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                         foreach (var tb in toolBtns) { var tbb = tb; var mi = new MenuItem { Header = Convert.ToString(tbb.Content) + (tbb == lessMoreBtn ? "  (chart extras: patterns, matches, clean)" : "") }; mi.Click += delegate { tbb.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() => collapseTools())); }; cmT.Items.Add(mi); }
                         cmT.Items.Add(new Separator());
                         var ms = new MenuItem { Header = (stratShown ? "✓ " : "") + "STRATEGY box on the header (signals / mode)" }; ms.Click += delegate { stratShown = !stratShown; collapseTools(); }; cmT.Items.Add(ms);
+                        cmT.Items.Add(new Separator());   /* 📥 BUILD 11s: the TICK LIBRARY + the live recorder switch (on by default; files only) */
+                        var mLib = new MenuItem { Header = "📥 TICK LIBRARY (download / keep / load real ticks)", Tag = "live.ticklib" }; mLib.Click += delegate { OpenTickLibrary(w, active != null ? active.Symbol : "MNQ"); }; cmT.Items.Add(mLib);
+                        var mRec = new MenuItem { Header = (layerOf("TICKREC", 1) == 1 ? "☑  " : "☐  ") + "📥 save today's live ticks into the library", StaysOpenOnClick = true, Tag = "live.tickrec" };
+                        mRec.Click += delegate { layerModes["TICKREC"] = layerOf("TICKREC", 1) == 1 ? 0 : 1; saveWorkspace(); mRec.Header = (layerOf("TICKREC", 1) == 1 ? "☑  " : "☐  ") + "📥 save today's live ticks into the library"; }; cmT.Items.Add(mRec);
                         cmT.PlacementTarget = toolsBtn; cmT.IsOpen = true;
                     };
                     strip.Children.Add(toolsBtn); collapseTools(); w.Loaded += delegate { collapseTools(); };
@@ -47593,7 +47895,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 // lockouts); a setup inside the window → a ticket for the next pool account (ONE TRADE PER ACCOUNT / STAY UNTIL DONE); ONE press = the bracket
                 // through that account's own link; SKIP; nothing is sent without the press. Settings + the accounts marked done in Studio\TriGuide.txt.
                 string triFile = Path.Combine(StudioFolder(), "TriGuide.txt");
-                var triSet = new Dictionary<string, string> { { "src", "CHART" }, { "mode", "ROTATE" }, { "window", "0" }, { "qty", "15" }, { "stop", "500" }, { "target", "1500" }, { "fqty", "0" }, { "fstop", "0" }, { "ftarget", "0" }, { "flock", "0" }, { "elock", "0" }, { "eone", "0" }, { "fone", "0" } };
+                var triSet = new Dictionary<string, string> { { "src", "CHART" }, { "mode", "ROTATE" }, { "window", "0" }, { "qty", "15" }, { "stop", "500" }, { "target", "1500" }, { "fqty", "0" }, { "fstop", "0" }, { "ftarget", "0" }, { "flock", "0" }, { "elock", "0" }, { "eone", "0" }, { "fone", "0" }, { "sets", "FVG,AGG,ENG" }, { "ovn", "0" }, { "atr", "0" } };
                 var triDoneAcc = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 try { if (File.Exists(triFile)) foreach (var tl in File.ReadAllLines(triFile)) { var tp = tl.Split('|'); if (tp.Length == 3 && tp[0] == "done") triDoneAcc[tp[1]] = tp[2]; else { var kv = tl.Split(new[] { '=' }, 2); if (kv.Length == 2 && triSet.ContainsKey(kv[0])) triSet[kv[0]] = kv[1]; } } } catch { }
                 Action saveTri = delegate { try { Directory.CreateDirectory(StudioFolder()); File.WriteAllLines(triFile, triSet.Select(kv => kv.Key + "=" + kv.Value).Concat(triDoneAcc.Select(kv => "done|" + kv.Key + "|" + kv.Value.Replace("|", " "))).ToArray()); } catch { } };
@@ -47602,7 +47904,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                 {
                     int wi = Math.Max(0, Math.Min(KeystoneTriSettings.Windows.Length - 1, (int)triNum("window")));
                     return new KeystoneTriSettings { Window = KeystoneTriSettings.Windows[wi].Code, Mode = triSet["mode"] == "STAY" ? "STAY" : "ROTATE", Qty = Math.Max(1, (int)triNum("qty")), StopUsd = triNum("stop") > 0 ? triNum("stop") : 500, TargetUsd = triNum("target") > 0 ? triNum("target") : 1500,
-                        FQty = Math.Max(0, (int)triNum("fqty")), FStop = triNum("fstop"), FTarget = triNum("ftarget"), FDayLock = triNum("flock"), EDayLock = triNum("elock"), EOneTrade = triSet["eone"] == "1", FOneTrade = triSet["fone"] == "1" }.ApplyWindow();
+                        FQty = Math.Max(0, (int)triNum("fqty")), FStop = triNum("fstop"), FTarget = triNum("ftarget"), FDayLock = triNum("flock"), EDayLock = triNum("elock"), EOneTrade = triSet["eone"] == "1", FOneTrade = triSet["fone"] == "1",
+                        Setups = string.IsNullOrWhiteSpace(triSet["sets"]) ? "FVG,AGG,ENG" : triSet["sets"], Overnight = triSet["ovn"] == "1", AtrSkipTop = triSet["atr"] == "1" ? 1.0 / 3 : 0 }.ApplyWindow();   /* 💡 11s: the setups + the OVERNIGHT / SKIP WILD filters */
                 };
                 KeystoneTriGuide triG = null; Window triPop = null; TextBlock triPopInfo = null, triTabInfo = null; Button triPopPress = null, triTabPress = null, triTabSkip = null; string triPopKey = ""; DateTime triLogDay = DateTime.MinValue;
                 Action<bool> triAct = press =>
@@ -47774,9 +48077,19 @@ namespace NinjaTrader.NinjaScript.AddOns
                             {
                                 var cp = px.Item2; var planB = Btn(px.Item1, Tint(Cyan, 110)); planB.Height = 30; planB.IsEnabled = !rotOn; planB.Margin = new Thickness(0, 12, 6, 0); planB.Tag = "rot.tri.plan." + px.Item4;
                                 planB.ToolTip = px.Item1 + ": " + cp.Qty + " MNQ, stop $" + cp.StopUsd.ToString("N0", CultureInfo.InvariantCulture) + " (" + cp.StopPts.ToString("0.##", CultureInfo.InvariantCulture) + " pts) / target $" + cp.TargetUsd.ToString("N0", CultureInfo.InvariantCulture) + " (" + cp.TargetPts.ToString("0.##", CultureInfo.InvariantCulture) + " pts), ONE TRADE PER ACCOUNT PER DAY (win or lose) eval + funded, NY 9:30–16:00, payout as soon as allowed • study: " + px.Item3 + " • " + KeystoneTriSettings.PlanResearch;
-                                planB.Click += delegate { triSet["window"] = Math.Max(0, Array.FindIndex(KeystoneTriSettings.Windows, x => x.Code == cp.Window)).ToString(CultureInfo.InvariantCulture); triSet["mode"] = "ROTATE"; triSet["qty"] = cp.Qty.ToString(CultureInfo.InvariantCulture); triSet["stop"] = cp.StopUsd.ToString("0", CultureInfo.InvariantCulture); triSet["target"] = cp.TargetUsd.ToString("0", CultureInfo.InvariantCulture); triSet["fqty"] = "0"; triSet["fstop"] = "0"; triSet["ftarget"] = "0"; triSet["flock"] = "0"; triSet["elock"] = "0"; triSet["eone"] = "1"; triSet["fone"] = "1"; saveTri(); fillRotate(); };
+                                planB.Click += delegate { triSet["window"] = Math.Max(0, Array.FindIndex(KeystoneTriSettings.Windows, x => x.Code == cp.Window)).ToString(CultureInfo.InvariantCulture); triSet["mode"] = "ROTATE"; triSet["qty"] = cp.Qty.ToString(CultureInfo.InvariantCulture); triSet["stop"] = cp.StopUsd.ToString("0", CultureInfo.InvariantCulture); triSet["target"] = cp.TargetUsd.ToString("0", CultureInfo.InvariantCulture); triSet["fqty"] = "0"; triSet["fstop"] = "0"; triSet["ftarget"] = "0"; triSet["flock"] = "0"; triSet["elock"] = "0"; triSet["eone"] = "1"; triSet["fone"] = "1"; triSet["sets"] = cp.Setups; triSet["ovn"] = cp.Overnight ? "1" : "0"; triSet["atr"] = cp.AtrSkipTop > 0 ? "1" : "0"; saveTri(); fillRotate(); };
                                 tw.Children.Add(planB);
                             }
+                            /* 💡 BUILD 11s: OVERNIGHT side only + SKIP WILD DAYS (+ the preset below) */
+                            foreach (var ox in new[] { Tuple.Create("ovn", "OVERNIGHT SIDE ONLY", "trade only the way of the night's move (18:00 open → 9:30 close); nothing before 9:30"), Tuple.Create("atr", "SKIP WILD DAYS", "skip a signal when the 5-minute ATR(14) is in the top third of the previous 20 sessions (needs ≥ 10 sessions of history on the chart)") })
+                            { var okey = ox.Item1; var ocb = new CheckBox { Content = ox.Item2, IsChecked = triSet[okey] == "1", Foreground = Text, IsEnabled = !rotOn, Margin = new Thickness(0, 14, 10, 0), Tag = "rot.tri." + okey, ToolTip = ox.Item3 }; ocb.Checked += delegate { triSet[okey] = "1"; saveTri(); }; ocb.Unchecked += delegate { triSet[okey] = "0"; saveTri(); }; tw.Children.Add(ocb); }
+                            {
+                                var cp = KeystoneTriSettings.OvernightSkipWild(); var planO = Btn("💡 3 SETUPS + OVERNIGHT + SKIP WILD DAYS", Tint(Gold, 110)); planO.Height = 30; planO.IsEnabled = !rotOn; planO.Margin = new Thickness(0, 12, 6, 0); planO.Tag = "rot.tri.plan.ovn";
+                                planO.ToolTip = "FVG + AGG only (no ENG), the overnight side only, wild days skipped, SMALL 1-A-DAY: 5 MNQ −$500 / +$1,050, one trade per account per day, payout as soon as allowed • " + KeystoneTriSettings.OvernightStudy + " — " + KeystoneTriSettings.OvernightWarn;
+                                planO.Click += delegate { triSet["window"] = Math.Max(0, Array.FindIndex(KeystoneTriSettings.Windows, x => x.Code == cp.Window)).ToString(CultureInfo.InvariantCulture); triSet["mode"] = "ROTATE"; triSet["qty"] = cp.Qty.ToString(CultureInfo.InvariantCulture); triSet["stop"] = cp.StopUsd.ToString("0", CultureInfo.InvariantCulture); triSet["target"] = cp.TargetUsd.ToString("0", CultureInfo.InvariantCulture); triSet["fqty"] = "0"; triSet["fstop"] = "0"; triSet["ftarget"] = "0"; triSet["flock"] = "0"; triSet["elock"] = "0"; triSet["eone"] = "1"; triSet["fone"] = "1"; triSet["sets"] = cp.Setups; triSet["ovn"] = "1"; triSet["atr"] = "1"; saveTri(); fillRotate(); };
+                                tw.Children.Add(planO);
+                            }
+                            tsp.Children.Add(new TextBlock { Text = "💡 3 SETUPS + OVERNIGHT + SKIP WILD DAYS: " + KeystoneTriSettings.OvernightStudy + " — " + KeystoneTriSettings.OvernightWarn + " (GUIDED / MANUAL only)", Foreground = Orange, FontSize = 10.5, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0), Tag = "rot.tri.ovn.note" });
                             tsp.Children.Add(new TextBlock { Text = "💡 BOLD / SMALL 1-A-DAY: " + KeystoneTriSettings.PlanResearch, Foreground = Muted, FontSize = 10.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) });
                             tsp.Children.Add(new TextBlock { Text = "💵 " + triS().Describe() + " • a FUNDED-ticked account below uses the funded size / bracket", Foreground = Cyan, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 4) });
                             // ✅ DONE marks (STAY UNTIL DONE moves on; every mode skips a done account)
@@ -49780,6 +50093,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                         catch (Exception ex) { exMsg.Text = "export failed • " + ex.Message; exMsg.Foreground = Red; }
                     };
                     exO.Click += delegate { try { Directory.CreateDirectory(exDir); System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exDir) { UseShellExecute = true }); } catch { } };
+                    var libB = small("📥 TICK LIBRARY", Tint(Gold, 110)); libB.Tag = "studio.ticklib"; libB.ToolTip = "download NinjaTrader's real ticks day by day, keep them for good — the replay, ROTATION SIM, 3-SETUP ROTATION and ORDERFLOW load them by themselves"; libB.Click += delegate { OpenTickLibrary(w, active != null ? active.Symbol : "MNQ"); }; exRow.Children.Insert(0, libB);
                     drawers["TOOLS"].Children.Add(exRow);
                 }
                 unparent(dataLine); drawers["TOOLS"].Children.Add(dataLine);
@@ -50134,7 +50448,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 {
                     var t = o as Tuple<List<KeystoneRSimResult>, KeystoneRSimStats, double>; if (t == null) { say(o is Exception ? what + " failed • " + ((Exception)o).Message : Convert.ToString(o), Gold); return; }
                     curS = s; curR = t.Item1; curSt = t.Item2; medRangeSeen = t.Item3; showCost(); curFile = null; saveNow(name + "-" + s.Short);
-                    var st = curSt; say("✓ " + what + " · " + st.N + " account(s) · 🔒 " + pc(st.LockPct) + " · 💀 " + pc(st.BlownPct) + " · median " + nn(st.MedTradesToLock) + " trades to the lock · no-edge " + pc(st.NoEdgePct) + (st.Reliable ? "" : " · ⚠ NOT reliable: " + st.Why) + " · 💾 saved", st.Reliable ? Green : Orange);
+                    var st = curSt; say("✓ " + what + " · " + st.N + " account(s) · 🔒 " + pc(st.LockPct) + " · 💀 " + pc(st.BlownPct) + " · median " + nn(st.MedTradesToLock) + " trades to the lock · no-edge " + pc(st.NoEdgePct) + (st.Reliable ? "" : " · ⚠ NOT reliable: " + st.Why) + (days != null && days.Count > 0 ? " · 📥 " + KeystoneTickLib.CoverageText(days.Count(x => x.Source == "TICKS"), days.Count) : "") + " · 💾 saved", st.Reliable ? Green : Orange);
                     status.Text = "🔄 ROTATION SIM · " + what + " · " + pc(st.LockPct) + " locked of " + st.N + " · simulation only"; status.Foreground = Cyan;
                     tab = curR.Count == 1 ? tab : "POOL"; paint();
                 });
@@ -50205,7 +50519,7 @@ namespace NinjaTrader.NinjaScript.AddOns
            🧪 RESEARCH, SIMULATION ONLY — the pure KeystoneTriRotation; nothing here can reach NinjaTrader or an account (no link, no broker). */
         private UIElement BuildTriRotationDrawer(string sfolder, Window w, TextBlock status)
         {
-            var IC = CultureInfo.InvariantCulture; bool sync = false; bool busy = false;
+            var IC = CultureInfo.InvariantCulture; bool sync = false; bool busy = false; string triCoverage = "";
             var root = new StackPanel { Tag = "tri.root", MinWidth = 900 };
             Func<string, UIElement, UIElement> lbl = (t, c) => { var sp = new StackPanel { Margin = new Thickness(0, 0, 6, 2) }; sp.Children.Add(new TextBlock { Text = t, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold, Margin = new Thickness(2, 2, 0, 0) }); sp.Children.Add(c); return sp; };
             Func<string, double, string, TextBox> box = (v, wd, tag) => { var b = Input(v); b.Width = wd; b.Height = 26; b.Margin = new Thickness(2); b.Padding = new Thickness(3, 2, 3, 2); b.Tag = tag; return b; };
@@ -50242,6 +50556,12 @@ namespace NinjaTrader.NinjaScript.AddOns
             var bBold = btn("💡 BOLD 1-A-DAY", Tint(Cyan, 110)); bBold.Tag = "tri.plan.bold"; bBold.ToolTip = "10 MNQ, stop $1,000 (50 pts) / target $1,050 (52.5 pts), ONE TRADE PER ACCOUNT PER DAY eval + funded, NY, payout as soon as allowed • " + KeystoneTriSettings.BoldStudy + " • " + KeystoneTriSettings.PlanResearch;
             var bSmall = btn("💡 SMALL 1-A-DAY", Tint(Cyan, 110)); bSmall.Tag = "tri.plan.small"; bSmall.ToolTip = "5 MNQ, stop $500 (50 pts) / target $1,050 (105 pts), ONE TRADE PER ACCOUNT PER DAY eval + funded, NY, payout as soon as allowed • " + KeystoneTriSettings.SmallStudy + " • " + KeystoneTriSettings.PlanResearch;
             r3b.Children.Add(bBold); r3b.Children.Add(bSmall);
+            /* 💡 BUILD 11s: OVERNIGHT side only + SKIP WILD DAYS + the preset */
+            var cbOvn = new CheckBox { Content = "OVERNIGHT SIDE ONLY", Foreground = Text, FontSize = 11, Margin = new Thickness(4, 14, 8, 0), Tag = "tri.ovn", ToolTip = "trade only the way of the night's move (the 18:00 open → the 9:30 close); nothing before 9:30, a flat night = no trade" };
+            var cbAtr = new CheckBox { Content = "SKIP WILD DAYS", Foreground = Text, FontSize = 11, Margin = new Thickness(4, 14, 8, 0), Tag = "tri.atr", ToolTip = "skip a signal when the 5-minute ATR(14) at it is in the top third of the previous 20 sessions' window candles (trailing — no lookahead; the first 10 sessions of a run are never skipped)" };
+            var bOvn = btn("💡 3 SETUPS + OVERNIGHT + SKIP WILD DAYS", Tint(Gold, 110)); bOvn.Tag = "tri.plan.ovn"; bOvn.ToolTip = "FVG + AGG (no ENG), the overnight side, wild days skipped, SMALL 1-A-DAY (5 MNQ, −$500 / +$1,050, one trade per account per day, payout ASAP) • " + KeystoneTriSettings.OvernightStudy + " — " + KeystoneTriSettings.OvernightWarn;
+            r3b.Children.Add(cbOvn); r3b.Children.Add(cbAtr); r3b.Children.Add(bOvn);
+            root.Children.Add(new TextBlock { Text = "💡 3 SETUPS + OVERNIGHT + SKIP WILD DAYS: " + KeystoneTriSettings.OvernightStudy + " — " + KeystoneTriSettings.OvernightWarn + ".", Foreground = Orange, FontSize = 10.5, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 0, 0, 2), Tag = "tri.plan.ovn.note" });
             root.Children.Add(new TextBlock { Text = "💡 BOLD 1-A-DAY: " + KeystoneTriSettings.BoldStudy + " • SMALL 1-A-DAY: " + KeystoneTriSettings.SmallStudy + " • " + KeystoneTriSettings.PlanResearch, Foreground = Muted, FontSize = 10.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 0, 0, 2), Tag = "tri.plan.note" });
             var costLine = new TextBlock { Foreground = Cyan, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 0, 0, 2), Tag = "tri.costline" }; root.Children.Add(costLine);
             Func<KeystoneTriSettings> readS = () =>
@@ -50250,7 +50570,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var sets = setBoxes.Where(x => x.Item1.IsChecked == true).Select(x => x.Item2).Distinct().ToList(); s.Setups = sets.Count == 0 ? "FVG" : string.Join(",", sets);
                 double a = num(tAcc.Text), q = num(tQty.Text), sl = num(tStop.Text), tp = num(tTgt.Text); s.Accounts = double.IsNaN(a) ? 30 : (int)Math.Max(1, Math.Min(300, a)); s.Qty = double.IsNaN(q) ? 15 : (int)Math.Max(1, Math.Min(60, q)); s.StopUsd = double.IsNaN(sl) || sl <= 0 ? 500 : sl; s.TargetUsd = double.IsNaN(tp) || tp <= 0 ? 1500 : tp;
                 double fq = num(tFQty.Text), fs = num(tFStop.Text), ft = num(tFTgt.Text), fl = num(tFLock.Text), el = num(tELock.Text); s.FQty = double.IsNaN(fq) ? 0 : (int)Math.Max(0, Math.Min(60, fq)); s.FStop = double.IsNaN(fs) ? 0 : Math.Max(0, fs); s.FTarget = double.IsNaN(ft) ? 0 : Math.Max(0, ft); s.FDayLock = double.IsNaN(fl) ? 0 : Math.Max(0, fl); s.EDayLock = double.IsNaN(el) ? 0 : Math.Max(0, el);
-                s.EOneTrade = cbEOne.IsChecked == true; s.FOneTrade = cbFOne.IsChecked == true; s.PayoutHold = cPay.SelectedIndex == 1 ? KeystoneTriSettings.PayoutHoldFull : 0;
+                s.EOneTrade = cbEOne.IsChecked == true; s.FOneTrade = cbFOne.IsChecked == true; s.PayoutHold = cPay.SelectedIndex == 1 ? KeystoneTriSettings.PayoutHoldFull : 0; s.Overnight = cbOvn.IsChecked == true; s.AtrSkipTop = cbAtr.IsChecked == true ? 1.0 / 3 : 0;
                 var rr = rulesList[Math.Max(0, Math.Min(rulesList.Count - 1, cRules.SelectedIndex))].Copy(); if (rr.Name == "LUCID FLEX 50K") rr = KeystoneTriSettings.LucidFlex50K(); s.Rules = rr; return s;
             };
             Func<KeystoneTriCandidate, bool> wanted = c => setBoxes.Any(x => x.Item1.IsChecked == true && x.Item2 == c.Setup && x.Item3 == c.Dir);
@@ -50261,12 +50581,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             foreach (var sb in setBoxes) { sb.Item1.Checked += delegate { showCost(); }; sb.Item1.Unchecked += delegate { showCost(); }; }
             Action<KeystoneTriSettings> usePlan = p =>
             {
-                cWin.SelectedIndex = Math.Max(0, Array.FindIndex(KeystoneTriSettings.Windows, x => x.Code == p.Window)); cMode.SelectedIndex = 0; foreach (var sb in setBoxes) sb.Item1.IsChecked = true;
+                cWin.SelectedIndex = Math.Max(0, Array.FindIndex(KeystoneTriSettings.Windows, x => x.Code == p.Window)); cMode.SelectedIndex = 0; foreach (var sb in setBoxes) sb.Item1.IsChecked = p.Has(sb.Item2); cbOvn.IsChecked = p.Overnight; cbAtr.IsChecked = p.AtrSkipTop > 0;
                 tQty.Text = p.Qty.ToString(IC); tStop.Text = p.StopUsd.ToString("0", IC); tTgt.Text = p.TargetUsd.ToString("0", IC); tFQty.Text = p.FQty.ToString(IC); tFStop.Text = p.FStop.ToString("0", IC); tFTgt.Text = p.FTarget.ToString("0", IC); tFLock.Text = p.FDayLock.ToString("0", IC); tELock.Text = p.EDayLock.ToString("0", IC);
                 cbEOne.IsChecked = p.EOneTrade; cbFOne.IsChecked = p.FOneTrade; cPay.SelectedIndex = p.PayoutHold > 0 ? 1 : 0; showCost();
             };
             bBold.Click += delegate { usePlan(KeystoneTriSettings.BoldOneADay()); };
             bSmall.Click += delegate { usePlan(KeystoneTriSettings.SmallOneADay()); };
+            bOvn.Click += delegate { usePlan(KeystoneTriSettings.OvernightSkipWild()); };
+            foreach (var cb in new[] { cbOvn, cbAtr }) { cb.Checked += delegate { showCost(); }; cb.Unchecked += delegate { showCost(); }; }
             showCost();
             var r4 = new WrapPanel(); root.Children.Add(r4);
             var bRun = btn("▶ RUN", Tint(Green, 120)); bRun.Tag = "tri.run"; var bRnd = btn("🎲 RANDOM CONTROL (5 seeds)", Card); bRnd.Tag = "tri.random"; bRnd.ToolTip = "the same number of entries a session as the setups gave, at random minutes with random sides — same window, bracket and rotation: is there an edge?";
@@ -50334,13 +50656,16 @@ namespace NinjaTrader.NinjaScript.AddOns
                 runBg(() =>
                 {
                     var d = load(rg[0], rg[1]); if (d.N == 0) return "no saved MNQ minutes for " + rg[0].ToString("yyyy-MM-dd", IC) + " → " + rg[1].ToString("yyyy-MM-dd", IC) + " (🗂 DATA / ● LIVE DEMO history first)";
+                    /* 📥 11s: the TICK LIBRARY's real trades decide a minute that touches both the stop and the target (loaded only when needed) */
+                    var tkCache = new Dictionary<DateTime, List<KeystoneTick>>(); s.TicksOf = day => { List<KeystoneTick> l; if (tkCache.TryGetValue(day, out l)) return l; KeystoneTickDay mt; var of = KeystoneTickLib.OrderFlowTicks(sfolder, "MNQ", day, out mt); l = of == null ? null : of.Select(x => new KeystoneTick { Time = x.Time, Price = x.Price, Volume = x.Size }).ToList(); if (tkCache.Count > 20) tkCache.Clear(); tkCache[day] = l; return l; };
+                    var runDays = d.Days.Where(x => x >= rg[0].Date && x <= rg[1].Date).ToList(); triCoverage = KeystoneTickLib.CoverageText(KeystoneTickLib.RealDays(sfolder, "MNQ", runDays), runDays.Count);
                     var c = KeystoneTriSetup.Candidates(d, s).Where(wanted).ToList(); var r = KeystoneTriRotation.Run(d, c, s, rg[0], rg[1]); return Tuple.Create(r, c);
                 }, res =>
                 {
                     var ex = res as Exception; if (ex != null) { say("run failed • " + ex.Message, Red); return; } var sres = res as string; if (sres != null) { say(sres, Gold); return; }
                     var t = (Tuple<KeystoneTriResult, List<KeystoneTriCandidate>>)res; cur = t.Item1; curC = t.Item2; rnd = null;
                     string f = ""; try { f = KeystoneTriRuns.Save(sfolder, cur, s.Window + "-" + s.Mode, DateTime.Now, double.NaN); refreshRuns(); } catch (Exception ex2) { f = "save failed: " + ex2.Message; }
-                    say("✓ ▶ RUN · " + cur.Stats.Trades + " trades · " + cur.Stats.Batches + " batches · business net " + M(cur.Stats.BusinessNet) + " · saved " + Path.GetFileName(f) + " · " + KeystoneTriLive.Research, cur.Stats.BusinessNet >= 0 ? Green : Orange); tab = "STATS"; paint();
+                    say("✓ ▶ RUN · " + cur.Stats.Trades + " trades · " + cur.Stats.Batches + " batches · business net " + M(cur.Stats.BusinessNet) + " · saved " + Path.GetFileName(f) + " · 📥 " + triCoverage + (cur.Trades.Any(x => x.Reason.Contains("TICKS")) ? " (" + cur.Trades.Count(x => x.Reason.Contains("TICKS")) + " both-touched minutes decided by the ticks)" : "") + " · " + KeystoneTriLive.Research, cur.Stats.BusinessNet >= 0 ? Green : Orange); tab = "STATS"; paint();
                 });
             };
             bRnd.Click += delegate
@@ -50361,7 +50686,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 {
                     var c = (cmd ?? "").ToUpperInvariant(); Action<Button> click = b9 => b9.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     if (c.StartsWith("SET ")) { foreach (var kv in cmd.Substring(4).Split(';')) { var p = kv.Split('='); if (p.Length != 2) continue; var tb = new[] { tFrom, tTo, tAcc, tQty, tStop, tTgt, tFQty, tFStop, tFTgt, tFLock, tELock }.FirstOrDefault(x => Convert.ToString(x.Tag) == "tri." + p[0]); if (tb != null) tb.Text = p[1]; if (p[0] == "mode") cMode.SelectedIndex = int.Parse(p[1]); if (p[0] == "window") cWin.SelectedIndex = int.Parse(p[1]); } showCost(); return costLine.Text; }
-                    if (c == "RUN") click(bRun); else if (c == "RANDOM") click(bRnd); else if (c == "PLAN" || c == "PLAN BOLD") { click(bBold); showCost(); return costLine.Text; } else if (c == "PLAN SMALL") { click(bSmall); showCost(); return costLine.Text; }
+                    if (c == "RUN") click(bRun); else if (c == "RANDOM") click(bRnd); else if (c == "PLAN" || c == "PLAN BOLD") { click(bBold); showCost(); return costLine.Text; } else if (c == "PLAN SMALL") { click(bSmall); showCost(); return costLine.Text; } else if (c == "PLAN OVN") { click(bOvn); showCost(); return costLine.Text; }
                     else if (c.StartsWith("TAB ")) { tab = c.Substring(4); paint(); return string.Join(" | ", RsimTexts(host).Take(400)); }
                     return msg.Text + " | runs " + cRuns.Items.Count;
                 }
@@ -55633,6 +55958,238 @@ namespace NinjaTrader.NinjaScript.AddOns
         // live MNQ / MGC prices (or the saved 1-minute history replayed). SIMULATION ONLY: nothing here can place an order.
         private Window ddLabWindow;
         private sealed class DdCard { public KeystoneDdAccount A; public ComboBox Sym, Dir; public TextBox Qty, Tp, Sl; public TextBlock Eq, Open, Real, Peak, Floor, Buf, Flash, Log, Badge, TgtText, Why; public Border Card, Fill, TgtPos, TgtNeg, SegLeft, SegPeak, SegLoss; public Canvas Chart; public double Shown; }
+        /* 📥 BUILD 2026-11-11s — the TICK LIBRARY window (BACKTEST STUDIO ▸ 🔗 TOOLS, ● LIVE TRADING ▸ ☰ TOOLS, the 📊 ORDERFLOW bar): pick an instrument and a date range,
+           ⬇ DOWNLOAD NinjaTrader's real trades day by day (one tick BarsRequest per session day, saved in the background; the UI never waits), ⏸ PAUSE / ▶ RESUME,
+           days already complete are skipped, a failed day is asked once more, weekends / holidays are never asked, a day without tick history keeps its 1-second bars
+           (flagged no bid / ask — never order flow); the calendar (complete / partial / 1-second / missing / no session) and the list with trades, bid / ask %, MB;
+           ✔ CHECK (folds the live recording into the day files), ↻ REPAIR (partial / old / 1-second days again), 🗑 DELETE RANGE, 📦 EXPORT FOR CLAUDE (one .zip a month).
+           It only READS NinjaTrader's history and WRITES files: no order, no account, no link. */
+        private Window tickLibWindow; private Func<string, string> tickLibCmd;
+        private Func<string, DateTime, DateTime, Tuple<List<KeystoneOfTick>, string>> tickLibFetchFake;   // tests: (symbol, from, to) → (trades, problem)
+        private Func<string, DateTime, DateTime, List<KeystoneArcBar>> tickLibSecondsFake;                // tests: the 1-second bars of a day without ticks
+        private static List<string[]> OrderFlowGuide()
+        {
+            return new List<string[]>
+            {
+                new[] { "WHERE THE DATA COMES FROM", "Every number here is built from NinjaTrader's REAL trades: each trade's price, size and side. The side = who was in a hurry: a trade at the ask = a BUYER lifted the offer, at the bid = a SELLER hit the bid. The badge says it: ● REAL TICKS • bid/ask n % (green) = the side from NinjaTrader's bid / ask; ● REAL TICKS • tick rule (amber) = no bid / ask in that history, an up-tick counts as a buy; grey = no trades loaded, nothing is shown. Nothing is ever estimated from the candles." },
+                new[] { "DELTA (Δ)", "Contracts bought at the ask minus contracts sold at the bid. +500 = the buyers were 500 contracts more aggressive. CANDLE Δ = this candle, CUM Δ = added up since the start of the loaded trades. Price up with delta up = honest buying; price up with delta down = weak, likely to fade." },
+                new[] { "VOLUME PROFILE • POC • VALUE AREA", "The bars on the right = how many contracts traded at each price today. POC (gold) = the most traded price — a magnet. VALUE AREA (VAH – VAL) = where 70 % of the volume traded: inside = fair, back-and-forth; accepted outside = a move; failing outside = back to the POC." },
+                new[] { "HVN / LVN", "HVN = a thick row (lots traded): price slows down and often stops there — a good TARGET. LVN = a thin row (little traded): price moves through it fast — a poor place to wait." },
+                new[] { "Δ DELTA PROFILE", "The thin column by the price axis: at each price, green = more bought, red = more sold. A green block under the price = buyers defended there (support); a red block above = sellers defended (resistance)." },
+                new[] { "ABSORPTION", "Lots of aggressive selling at a low, yet the price does not fall (it closes high) = passive buyers soaked it up. Often a turn up (and the mirror at a high). Shown as ABSORB." },
+                new[] { "DIVERGENCE", "A new high while the cumulative delta does NOT make a new high (or the mirror at a low) = the push has no fuel left. Shown as DIVERGE." },
+                new[] { "STACKED IMBALANCES", "3+ prices in a row where buyers outnumbered the sellers one tick lower by 3 × or more (or the mirror) = one side took over decisively. The zone often holds when price comes back — the STOP goes just beyond it." },
+                new[] { "FUEL vs ENGINE", "Fuel = the aggressive orders (the delta). Engine = the price. Both the same way = a healthy move. Fuel without engine = absorbed (watch for a turn). Engine without fuel = a thin move / stops being run — it can snap back." },
+                new[] { "THE SIGNAL CARD", "A setup + where price is (value area), the flow of the last minute and the delta: when all agree the card says STRONG. The STOP goes beyond the level the setup defended, the TARGET at the next thick volume row; FILL ORDER only fills the order panel, TAKE uses the chart's own BUY / SELL (it asks first). A setup is a reading, not a promise — check its hit rate in 📈 STATS." },
+            };
+        }
+        private void OpenTickLibrary(Window owner, string sym0)
+        {
+            if (tickLibWindow != null) { try { tickLibWindow.Activate(); } catch { } return; }
+            var w = new KeystoneWindow { Title = "SPASIX FUTURE • 📥 TICK LIBRARY", Width = 1320, Height = 880, MinWidth = 820, MinHeight = 520, Background = Bg, Foreground = Text, ResizeMode = ResizeMode.CanResize, WindowStartupLocation = WindowStartupLocation.CenterScreen };
+            FitWindowToScreen(w); tickLibWindow = w; string folder = StudioFolder(); var IC = CultureInfo.InvariantCulture; bool sync = false;
+            var root = new DockPanel { Margin = new Thickness(14, 10, 14, 10), Tag = "tlib.root" };
+            var head = new StackPanel(); DockPanel.SetDock(head, Dock.Top); root.Children.Add(head);
+            head.Children.Add(new TextBlock { Text = "📥 TICK LIBRARY — NinjaTrader's real trades: downloaded once, kept for good, loaded for every test", Foreground = Gold, FontSize = 18, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap });
+            head.Children.Add(new TextBlock { Text = "Every trade: time (ms), price, size and side (bought at the ask / sold at the bid — from NinjaTrader's bid / ask, else the tick rule). One file per symbol + session day (18:00 → 17:00) in " + Path.Combine(folder, "TickCache") + ". The studio replay, 🔄 ROTATION SIM, 🎯 3-SETUP ROTATION and 📊 ORDERFLOW use it by themselves when the day is there. It only reads NinjaTrader's history and writes files — it never sends an order.", Foreground = Muted, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 8) });
+            Func<string, UIElement, UIElement> lbl = (t, c) => { var sp = new StackPanel { Margin = new Thickness(0, 0, 8, 2) }; sp.Children.Add(new TextBlock { Text = t, Foreground = Muted, FontSize = 11, FontWeight = FontWeights.Bold }); sp.Children.Add(c); return sp; };
+            Func<string, Brush, string, Button> bt = (t, b, tag) => { var x = Btn(t, b); x.Height = 32; x.FontSize = 12; x.Padding = new Thickness(12, 0, 12, 0); x.Margin = new Thickness(0, 14, 6, 0); x.Tag = tag; return x; };
+            var row = new WrapPanel(); head.Children.Add(row);
+            var symBox = new ComboBox { IsEditable = true, Width = 140, Height = 30, FontSize = 13, Tag = "tlib.sym", ToolTip = "MNQ, MGC, NQ, ES, GC … = the front month of each day (the rolls are handled); or one contract exactly as NinjaTrader names it, e.g. MNQ 12-26" };
+            foreach (var x in new[] { "MNQ", "MGC", "NQ", "ES", "GC", "MES", "CL" }) symBox.Items.Add(x); symBox.Text = string.IsNullOrWhiteSpace(sym0) ? "MNQ" : sym0;
+            DateTime today = DateTime.Today; var fromBox = Input(today.AddDays(-30).ToString("yyyy-MM-dd", IC)); var toBox = Input(today.ToString("yyyy-MM-dd", IC)); fromBox.Width = toBox.Width = 108; fromBox.Height = toBox.Height = 30; fromBox.Margin = toBox.Margin = new Thickness(0); fromBox.Tag = "tlib.from"; toBox.Tag = "tlib.to";
+            row.Children.Add(lbl("INSTRUMENT", symBox)); row.Children.Add(lbl("FROM", fromBox)); row.Children.Add(lbl("TO", toBox));
+            foreach (var q in new[] { Tuple.Create("30 D", 30), Tuple.Create("90 D", 90), Tuple.Create("1 YEAR", 365) }) { var qd = q.Item2; var qb = bt(q.Item1, Card, "tlib.quick." + qd); qb.Click += delegate { fromBox.Text = today.AddDays(-qd).ToString("yyyy-MM-dd", IC); toBox.Text = today.ToString("yyyy-MM-dd", IC); }; row.Children.Add(qb); }
+            var bDl = bt("⬇ DOWNLOAD", Green, "tlib.download"); var bPause = bt("⏸ PAUSE", Card, "tlib.pause"); var bCheck = bt("✔ CHECK", Card, "tlib.check"); var bRepair = bt("↻ REPAIR", Card, "tlib.repair");
+            var bDel = bt("🗑 DELETE RANGE", Tint(Red, 120), "tlib.delete"); var bExp = bt("📦 EXPORT FOR CLAUDE", Tint(Cyan, 110), "tlib.export"); var bFolder = bt("📂 FOLDER", Card, "tlib.folder");
+            bDl.ToolTip = "every session day of the range not complete yet, one at a time (weekends / holidays never asked; a failed day is asked once more)"; bRepair.ToolTip = "only the PARTIAL (amber), old-format and 1-SECOND (blue) days are downloaded again"; bCheck.ToolTip = "re-reads every day of the range and folds today's earlier live recordings into their day files";
+            bExp.ToolTip = "one .zip per month: per-day CSV.gz (time ms, price, size, side +1 / −1, bid/ask-quoted flag) + a README — Studio\\exports\\ticks";
+            var cbSecs = new CheckBox { Content = "a day without tick history → keep its 1-SECOND bars (no bid / ask)", IsChecked = true, Foreground = Text, FontSize = 12, Margin = new Thickness(4, 20, 8, 0), Tag = "tlib.secs" };
+            foreach (var b in new[] { bDl, bPause, bCheck, bRepair, bDel, bExp, bFolder }) row.Children.Add(b); row.Children.Add(cbSecs);
+            bPause.IsEnabled = false;
+            var prog = new ProgressBar { Height = 8, Minimum = 0, Maximum = 1, Value = 0, Margin = new Thickness(0, 8, 0, 2), Foreground = Green, Background = Card };
+            var progT = new TextBlock { Foreground = Text, FontSize = 13, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Tag = "tlib.progress", Text = "pick the instrument and the days, then ⬇ DOWNLOAD" };
+            var diskT = new TextBlock { Foreground = Muted, FontSize = 12, TextWrapping = TextWrapping.Wrap, Tag = "tlib.disk" };
+            head.Children.Add(prog); head.Children.Add(progT); head.Children.Add(diskT);
+            var legend = new WrapPanel { Margin = new Thickness(0, 6, 0, 4) }; head.Children.Add(legend);
+            Func<string, SolidColorBrush> colOf = st => st == "COMPLETE" ? Green : st == "PARTIAL" ? Gold : st == "SECONDS" ? Blue : st == "NOSESSION" ? Panel : Card;
+            foreach (var lg in new[] { Tuple.Create("COMPLETE", "complete"), Tuple.Create("PARTIAL", "partial / old / live only"), Tuple.Create("SECONDS", "1-second bars only (no bid / ask)"), Tuple.Create("MISSING", "missing"), Tuple.Create("NOSESSION", "no session") })
+            { var sp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 14, 0) }; sp.Children.Add(new Border { Width = 14, Height = 14, CornerRadius = new CornerRadius(3), Background = colOf(lg.Item1), BorderBrush = Muted, BorderThickness = new Thickness(lg.Item1 == "NOSESSION" ? 1 : 0), Margin = new Thickness(0, 0, 5, 0) }); sp.Children.Add(new TextBlock { Text = lg.Item2, Foreground = Muted, FontSize = 11.5 }); legend.Children.Add(sp); }
+            var logT = new TextBlock { Foreground = Muted, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0), Tag = "tlib.log", FontFamily = new FontFamily("Consolas") }; DockPanel.SetDock(logT, Dock.Bottom); root.Children.Add(logT);
+            var body = new Grid(); body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) }); body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) }); root.Children.Add(body);
+            var cal = new WrapPanel { Tag = "tlib.calendar" }; var calSv = new ScrollViewer { Content = cal, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 0, 10, 0) }; body.Children.Add(calSv);
+            var list = new StackPanel { Tag = "tlib.list" }; var listSv = new ScrollViewer { Content = list, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto }; Grid.SetColumn(listSv, 1); body.Children.Add(listSv);
+            w.Content = root;
+            var logLines = new List<string>(); Action<string> log = t => { logLines.Add(DateTime.Now.ToString("HH:mm:ss", IC) + "  " + t); while (logLines.Count > 7) logLines.RemoveAt(0); logT.Text = string.Join("\n", logLines); };
+            Func<string> symNow = () => { var t = (symBox.Text ?? "").Trim(); return t == "" ? "MNQ" : t.ToUpperInvariant(); };
+            Func<DateTime[]> range = () => { DateTime a = ParseStudioDate(fromBox.Text), z = ParseStudioDate(toBox.Text); if (a == DateTime.MinValue) a = today.AddDays(-30); if (z == DateTime.MinValue) z = today; if (z < a) { var t = a; a = z; z = t; } if ((z - a).TotalDays > 3700) a = z.AddDays(-3700); return new[] { a.Date, z.Date }; };
+            List<KeystoneTickDay> shown = new List<KeystoneTickDay>(); int paintGen = 0;
+            Action<List<KeystoneTickDay>> fill = days =>
+            {
+                shown = days; cal.Children.Clear(); list.Children.Clear();
+                foreach (var mg in days.GroupBy(d => new DateTime(d.Day.Year, d.Day.Month, 1)).OrderByDescending(g => g.Key))
+                {
+                    var md = mg.ToList(); int ses = md.Count(d => d.Status != "NOSESSION"), ok = md.Count(d => d.Status == "COMPLETE"); long tks = md.Sum(d => (long)d.Count);
+                    var card = new Border { Background = Panel, BorderBrush = Tint(Muted, 80), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 8, 10, 10), Margin = new Thickness(0, 0, 10, 10), Width = 320 };
+                    var csp = new StackPanel(); card.Child = csp;
+                    csp.Children.Add(new TextBlock { Text = mg.Key.ToString("MMMM yyyy", IC).ToUpperInvariant(), Foreground = Text, FontSize = 13, FontWeight = FontWeights.Bold });
+                    csp.Children.Add(new TextBlock { Text = ok + " / " + ses + " complete • " + KeystoneTickLib.Count(tks) + " trades • " + KeystoneTickLib.Mb(md.Sum(d => d.Bytes)), Foreground = ok == ses && ses > 0 ? Green : Muted, FontSize = 11, Margin = new Thickness(0, 1, 0, 6) });
+                    var grid = new UniformGrid { Columns = 7 }; csp.Children.Add(grid);
+                    foreach (var dn in new[] { "M", "T", "W", "T", "F", "S", "S" }) grid.Children.Add(new TextBlock { Text = dn, Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.Bold, TextAlignment = TextAlignment.Center });
+                    int lead = ((int)mg.Key.DayOfWeek + 6) % 7; var firstShown = md.Min(d => d.Day); lead = ((int)firstShown.DayOfWeek + 6) % 7; for (int k = 0; k < lead; k++) grid.Children.Add(new Border());
+                    foreach (var d in md.OrderBy(x => x.Day))
+                    {
+                        var c = colOf(d.Status); var cell = new Border { Background = d.Status == "MISSING" || d.Status == "NOSESSION" ? (Brush)c : Tint(c, 170), BorderBrush = Tint(Muted, 60), BorderThickness = new Thickness(d.Status == "NOSESSION" ? 1 : 0), CornerRadius = new CornerRadius(5), Margin = new Thickness(2), Height = 34, Tag = "tlib.day." + d.Day.ToString("yyyy-MM-dd", IC) + "." + d.Status,
+                            ToolTip = d.Day.ToString("dddd yyyy-MM-dd", IC) + "\n" + d.Status + (d.Count > 0 ? "\n" + d.Count.ToString("N0", IC) + " trades • bid / ask " + d.QuotedPct.ToString("0", IC) + " % • " + KeystoneTickLib.Mb(d.Bytes) + "\nsource " + d.Source + (d.First != DateTime.MinValue ? "\n" + d.First.ToString("MM-dd HH:mm:ss", IC) + " → " + d.Last.ToString("MM-dd HH:mm:ss", IC) : "") : "") + (d.Note != "" ? "\n" + d.Note : "") };
+                        var cs = new StackPanel { VerticalAlignment = VerticalAlignment.Center }; cs.Children.Add(new TextBlock { Text = d.Day.Day.ToString(IC), Foreground = d.Status == "MISSING" || d.Status == "NOSESSION" ? Muted : Bg, FontSize = 11.5, FontWeight = FontWeights.Bold, TextAlignment = TextAlignment.Center });
+                        if (d.Count > 0) cs.Children.Add(new TextBlock { Text = KeystoneTickLib.Count(d.Count), Foreground = Bg, FontSize = 9, TextAlignment = TextAlignment.Center });
+                        cell.Child = cs; grid.Children.Add(cell);
+                    }
+                    cal.Children.Add(card);
+                }
+                var hdr = new TextBlock { Text = string.Format(IC, "{0,-15} {1,-9} {2,9} {3,8} {4,9}  {5}", "DAY", "STATUS", "TRADES", "BID/ASK", "SIZE", "SOURCE"), Foreground = Muted, FontSize = 11.5, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.Bold }; list.Children.Add(hdr);
+                foreach (var d in days.Where(x => x.Status != "NOSESSION").OrderByDescending(x => x.Day))
+                    list.Children.Add(new TextBlock { Text = string.Format(IC, "{0,-15} {1,-9} {2,9} {3,8} {4,9}  {5}", d.Day.ToString("ddd yyyy-MM-dd", IC), d.Status == "SECONDS" ? "1-SECOND" : d.Status, d.Count > 0 ? d.Count.ToString("N0", IC) : "—", d.Count > 0 && d.Status != "SECONDS" ? d.QuotedPct.ToString("0", IC) + " %" : "—", d.Bytes > 0 ? KeystoneTickLib.Mb(d.Bytes) : "—", d.Source + (d.Live ? " + live" : "")), Foreground = colOf(d.Status) == Card ? Muted : (Brush)colOf(d.Status), FontSize = 11.5, FontFamily = new FontFamily("Consolas"), ToolTip = d.Note == "" ? null : d.Note });
+                int nS = days.Count(d => d.Status != "NOSESSION"), nC = days.Count(d => d.Status == "COMPLETE"), nP = days.Count(d => d.Status == "PARTIAL"), n1 = days.Count(d => d.Status == "SECONDS");
+                diskT.Text = "💾 " + symNow() + " in this range: " + nC + " complete • " + nP + " partial • " + n1 + " 1-second • " + (nS - nC - nP - n1) + " missing of " + nS + " session days • " + KeystoneTickLib.Mb(days.Sum(d => d.Bytes)) + "   |   the whole library: " + KeystoneTickLib.Mb(KeystoneTickLib.DiskUse(folder));
+            };
+            Action paint = delegate
+            {
+                var rg = range(); string sy = symNow(); int gen = ++paintGen;
+                if (sync) { fill(KeystoneTickLib.Range(folder, sy, rg[0], rg[1])); return; }
+                System.Threading.Tasks.Task.Factory.StartNew(() => KeystoneTickLib.Range(folder, sy, rg[0], rg[1])).ContinueWith(t => { try { w.Dispatcher.BeginInvoke(new Action(() => { if (gen == paintGen && t.Exception == null) fill(t.Result); })); } catch { } });
+            };
+            // ⬇ the download loop: one session day at a time (NinjaTrader's request → the day's trades → saved in the background → the next)
+            KeystoneTickDownload job = null; bool running = false; string jobSym = ""; Action step = null;
+            Action<DateTime, Action<List<KeystoneOfTick>, int, string>> fetch = (day, done) =>
+            {
+                DateTime a = KeystoneTickLib.SessionStart(day), z = KeystoneTickLib.SessionEnd(day);
+                if (tickLibFetchFake != null) { var r0 = tickLibFetchFake(jobSym, a, z); var l0 = r0 == null || r0.Item1 == null ? new List<KeystoneOfTick>() : r0.Item1; done(l0, l0.Count(x => x.Quoted), r0 == null ? "" : r0.Item2); return; }
+                Instrument inst = null; string src = "";
+                try { inst = jobSym.Contains(" ") ? SafeGetInstrument(jobSym) : ResolveStudioInstrument(jobSym, z, out src); } catch (Exception ex) { src = ex.Message; }
+                if (inst == null) { done(new List<KeystoneOfTick>(), 0, "no NinjaTrader contract for " + jobSym + " " + src); return; }
+                RequestTicks(inst, a, z, w.Dispatcher, done);
+            };
+            Action<DateTime, Action<List<KeystoneArcBar>>> fetchSecs = (day, done) =>
+            {
+                DateTime a = KeystoneTickLib.SessionStart(day), z = KeystoneTickLib.SessionEnd(day);
+                if (tickLibFetchFake != null) { done(tickLibSecondsFake != null ? tickLibSecondsFake(jobSym, a, z) ?? new List<KeystoneArcBar>() : new List<KeystoneArcBar>()); return; }
+                Instrument inst = null; string src; try { inst = jobSym.Contains(" ") ? SafeGetInstrument(jobSym) : ResolveStudioInstrument(jobSym, z, out src); } catch { }
+                if (inst == null) { done(new List<KeystoneArcBar>()); return; }
+                RequestSecondBars(inst, a, z, w.Dispatcher, (secs, problem) => done(secs));
+            };
+            Action<Action> background = work => { if (sync) { try { work(); } catch (Exception ex) { log("⚠ " + ex.Message); } return; } System.Threading.Tasks.Task.Factory.StartNew(() => { try { work(); } catch (Exception ex) { try { w.Dispatcher.BeginInvoke(new Action(() => log("⚠ " + ex.Message))); } catch { } } }); };
+            Action showProg = delegate { if (job == null) return; progT.Text = "⬇ " + job.Symbol + " • " + job.Progress(); prog.Maximum = Math.Max(1, job.Days.Count); prog.Value = Math.Min(job.Days.Count, job.Pos); progT.Foreground = job.Done ? Green : job.Paused ? Gold : Text; };
+            Action<Action> later = a => { if (sync) a(); else w.Dispatcher.BeginInvoke(a, DispatcherPriority.Background); };
+            step = delegate
+            {
+                if (job == null) { running = false; return; }
+                var nd = job.Next(); showProg();
+                if (nd == null)
+                {
+                    running = false; bPause.IsEnabled = !job.Done; bDl.IsEnabled = bRepair.IsEnabled = true;
+                    if (job.Done) { log("✓ " + job.Symbol + " done • " + job.Progress()); bPause.Content = "⏸ PAUSE"; bPause.IsEnabled = false; }
+                    paint(); return;
+                }
+                var day = nd.Value; running = true;
+                fetch(day, (all, quotedAll, problem) =>
+                {
+                    if (job == null) { running = false; return; }
+                    var dayT = KeystoneTickLib.DayOf(all, day); int q = dayT.Count(x => x.Quoted); string sy = job.Symbol;
+                    if (dayT.Count == 0 && string.IsNullOrWhiteSpace(problem) && cbSecs.IsChecked == true)
+                    {
+                        fetchSecs(day, secs =>
+                        {
+                            var dsec = (secs ?? new List<KeystoneArcBar>()).Where(b => b.Time > KeystoneTickLib.SessionStart(day) && b.Time <= KeystoneTickLib.SessionEnd(day)).ToList();
+                            string r1 = job.OnResult(day, 0, 0, "", dsec.Count);
+                            if (r1 == "SECONDS") background(() => KeystoneTickLib.SaveSeconds(folder, sy, day, dsec)); else if (r1 == "NOSESSION") background(() => KeystoneTickLib.MarkNoSession(folder, sy, day));
+                            showProg(); later(step);
+                        });
+                        return;
+                    }
+                    string res = job.OnResult(day, dayT.Count, q, problem, 0);
+                    if (res == "SAVE")
+                    {
+                        bool complete = KeystoneTickLib.SessionEnd(day) < DateTime.Now.AddMinutes(-5) && dayT[0].Time <= KeystoneTickLib.SessionStart(day).AddMinutes(30);
+                        if (sync) { KeystoneTickLib.Save(folder, sy, day, dayT, "TICKS", complete); showProg(); step(); return; }
+                        System.Threading.Tasks.Task.Factory.StartNew(() => { try { KeystoneTickLib.Save(folder, sy, day, dayT, "TICKS", complete); return ""; } catch (Exception ex) { return ex.Message; } })
+                            .ContinueWith(t => { try { w.Dispatcher.BeginInvoke(new Action(() => { if (t.Result != "") log("⚠ saving " + day.ToString("yyyy-MM-dd", IC) + ": " + t.Result); showProg(); step(); })); } catch { } });
+                        return;
+                    }
+                    if (res == "NOSESSION") background(() => KeystoneTickLib.MarkNoSession(folder, sy, day));
+                    if (res == "FAILED" || res == "RETRY") log(job.Log.Count > 0 ? job.Log[job.Log.Count - 1] : res);
+                    showProg(); later(step);
+                });
+            };
+            Action<bool> start = repair =>
+            {
+                if (running) { log("a download is running — ⏸ PAUSE first"); return; }
+                var rg = range(); jobSym = symNow(); var sy = KeystoneTickLib.Norm(jobSym);
+                job = KeystoneTickDownload.Plan(sy, rg[0], rg[1], d => KeystoneTickLib.Info(folder, sy, d), repair, DateTime.Today);
+                if (job.Days.Count == 0) { progT.Text = (repair ? "↻ nothing to repair" : "✓ every session day of the range is already there") + " (" + job.Skipped + " day(s))"; progT.Foreground = Green; job = null; paint(); return; }
+                log((repair ? "↻ REPAIR " : "⬇ DOWNLOAD ") + jobSym + " • " + job.Days.Count + " day(s) to get, " + job.Skipped + " already there");
+                bPause.IsEnabled = true; bPause.Content = "⏸ PAUSE"; bDl.IsEnabled = bRepair.IsEnabled = false; running = true; step();
+            };
+            bDl.Click += delegate { start(false); };
+            bRepair.Click += delegate { start(true); };
+            bPause.Click += delegate
+            {
+                if (job == null) return;
+                if (!job.Paused) { job.Paused = true; bPause.Content = "▶ RESUME"; log("⏸ paused (the day in progress finishes)"); showProg(); }
+                else { job.Paused = false; bPause.Content = "⏸ PAUSE"; bDl.IsEnabled = bRepair.IsEnabled = false; log("▶ resumed"); if (!running) { running = true; step(); } }
+            };
+            bCheck.Click += delegate
+            {
+                var rg = range(); var sy = KeystoneTickLib.Norm(symNow()); progT.Text = "✔ checking " + sy + " …"; progT.Foreground = Text;
+                background(() =>
+                {
+                    int folded = 0;
+                    for (var d = rg[0]; d <= rg[1] && d < KeystoneTickLib.SessionOfTick(DateTime.Now); d = d.AddDays(1))
+                    {
+                        var lf = KeystoneTickLib.LiveFile(folder, sy, d); if (!File.Exists(lf)) continue; KeystoneTickDay m; var merged = KeystoneTickLib.OrderFlowTicks(folder, sy, d, out m); if (merged == null) continue;
+                        KeystoneTickDay h; KeystoneTickLib.ReadFile(KeystoneTickLib.FileOf(folder, sy, d), true, out h); KeystoneTickLib.Save(folder, sy, d, merged, h.Count > 0 ? "TICKS+LIVE" : "LIVE", h.Count > 0 && h.Complete); File.Delete(lf); folded++;
+                    }
+                    Action fin = () => { log("✔ CHECK " + sy + " " + rg[0].ToString("yyyy-MM-dd", IC) + " → " + rg[1].ToString("yyyy-MM-dd", IC) + (folded > 0 ? " • " + folded + " live recording(s) folded into their day files" : "")); progT.Text = "✔ checked — the calendar shows every day as it is on disk"; progT.Foreground = Green; paint(); };
+                    if (sync) fin(); else w.Dispatcher.BeginInvoke(fin);
+                });
+            };
+            bDel.Click += delegate
+            {
+                var rg = range(); var sy = KeystoneTickLib.Norm(symNow());
+                if (!sync && KBox(w, "Delete every saved " + sy + " tick / 1-second / live file from " + rg[0].ToString("yyyy-MM-dd", IC) + " to " + rg[1].ToString("yyyy-MM-dd", IC) + "?\n\nThis cannot be undone (⬇ DOWNLOAD gets them again while NinjaTrader still has them).", "📥 TICK LIBRARY • DELETE", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+                int n = 0; for (var d = rg[0]; d <= rg[1]; d = d.AddDays(1)) foreach (var f in new[] { KeystoneTickLib.FileOf(folder, sy, d), KeystoneTickLib.SecondsFile(folder, sy, d), KeystoneTickLib.LiveFile(folder, sy, d), KeystoneTickLib.NoneFile(folder, sy, d) }) try { if (File.Exists(f)) { File.Delete(f); n++; } } catch { }
+                log("🗑 deleted " + n + " file(s) of " + sy); paint();
+            };
+            bExp.Click += delegate
+            {
+                var rg = range(); var sy = KeystoneTickLib.Norm(symNow()); string outDir = Path.Combine(folder, "exports", "ticks"); progT.Text = "📦 exporting " + sy + " …"; progT.Foreground = Text;
+                List<string> made = null; string err = "";
+                background(() =>
+                {
+                    try { made = KeystoneTickLib.ExportForClaude(folder, sy, rg[0], rg[1], outDir); } catch (Exception ex) { err = ex.Message; }
+                    Action fin = () => { if (err != "") { progT.Text = "📦 export failed • " + err; progT.Foreground = Red; return; } progT.Text = made == null || made.Count == 0 ? "📦 no real ticks of " + sy + " in that range (⬇ DOWNLOAD first)" : "📦 " + made.Count + " zip(s) → " + outDir; progT.Foreground = made != null && made.Count > 0 ? Green : Gold; if (made != null) foreach (var f in made) log("📦 " + Path.GetFileName(f)); };
+                    if (sync) fin(); else w.Dispatcher.BeginInvoke(fin);
+                });
+            };
+            bFolder.Click += delegate { try { var f = KeystoneTickLib.SymFolder(folder, symNow()); Directory.CreateDirectory(f); System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(f) { UseShellExecute = true }); } catch { } };
+            symBox.SelectionChanged += delegate { if (symBox.SelectedItem != null) { symBox.Text = Convert.ToString(symBox.SelectedItem); paint(); } };
+            fromBox.LostFocus += delegate { paint(); }; toBox.LostFocus += delegate { paint(); };
+            w.Closed += delegate { if (job != null) job.Paused = true; tickLibWindow = null; tickLibCmd = null; };
+            // the test hook (synchronous): SET sym=…;from=…;to=… • DOWNLOAD • REPAIR • PAUSE • CHECK • EXPORT • DELETE • STATUS
+            tickLibCmd = cmd =>
+            {
+                sync = true; try
+                {
+                    var c = (cmd ?? "").Trim(); Action<Button> click = b9 => b9.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); var u = c.ToUpperInvariant();
+                    if (u.StartsWith("SET ")) { foreach (var kv in c.Substring(4).Split(';')) { var p = kv.Split('='); if (p.Length != 2) continue; if (p[0] == "sym") symBox.Text = p[1]; if (p[0] == "from") fromBox.Text = p[1]; if (p[0] == "to") toBox.Text = p[1]; } paint(); return diskT.Text; }
+                    if (u == "DOWNLOAD") click(bDl); else if (u == "REPAIR") click(bRepair); else if (u == "PAUSE") click(bPause); else if (u == "CHECK") click(bCheck); else if (u == "EXPORT") click(bExp); else if (u == "DELETE") click(bDel);
+                    else if (u == "STATUS") { paint(); return string.Join(";", shown.Select(d => d.Day.ToString("MM-dd", IC) + "=" + d.Status)); }
+                    return progT.Text + " | " + diskT.Text + " | " + logT.Text.Replace("\n", " / ");
+                }
+                finally { sync = false; }
+            };
+            paint(); w.Show();
+        }
         private void OpenDrawdownLab()
         {
             if (ddLabWindow != null) { ddLabWindow.Activate(); return; }
