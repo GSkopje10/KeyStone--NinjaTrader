@@ -12,6 +12,7 @@ public static class SeasonLookTests
     public static int Main(string[] args)
     {
         try { Console.OutputEncoding = Encoding.UTF8; } catch { }
+        if (args.Length >= 3 && args[0] == "--combos") { Combos(args[1], args[2]); return 0; }
         if (args.Length >= 2 && args[0] == "--svg") { Preview(args[1]); if (args.Length >= 3) Gallery(args[1], args[2]); return 0; }
         // 1. the season of a NY date (northern hemisphere, astronomical starts)
         Ok(KeystoneSeasons.Of(D(2026, 11, 13)) == "FALL", "Nov 13 = FALL");
@@ -126,7 +127,7 @@ public static class SeasonLookTests
         Ok(KeystoneLookFiles.DecodeWidth(1920) == 1920 && KeystoneLookFiles.DecodeWidth(20000) == 3840 && KeystoneLookFiles.DecodeWidth(0) == 1920, "decode at the display width");
         try { Directory.Delete(dir, true); } catch { }
         // 8. 📷 PHOTO TEMPLATES: the catalog (URLs only — nothing is downloaded by a test), HTTPS to the two hosts, the byte check, the band slice
-        var ph = KeystoneLookCatalog.Photos; Ok(ph.Length >= 6 && ph.Length <= 8 && ph.Select(x => x.Id).Distinct().Count() == ph.Length, "6–8 photo templates, unique ids");
+        var ph = KeystoneLookCatalog.Photos; Ok(ph.Length >= 24 && ph.Select(x => x.Id).Distinct().Count() == ph.Length, "13m: ≥ 24 photo templates, unique ids (" + ph.Length + ")");
         foreach (var x in ph) Ok(KeystoneLookCatalog.UrlOk(x.Url) && x.Name.StartsWith("📷 ") && KeystoneScene.Names.Contains(x.Fallback) && x.Credit.Contains("License") && (x.Anim == "" || KeystoneParticles.Kinds.Contains(x.Anim)) && x.ChartTheme != "" && x.BandY >= 0 && x.BandY <= 1 && KeystoneSeasons.Argb(x.Accent).Length == 4, "photo " + x.Id + " complete");
         Ok(!KeystoneLookCatalog.UrlOk("http://images.unsplash.com/x.jpg") && !KeystoneLookCatalog.UrlOk("https://evil.example.com/x.jpg") && !KeystoneLookCatalog.UrlOk("file:///c:/x.jpg"), "HTTPS to the two image hosts only");
         var jpg = new byte[5000]; jpg[0] = 0xFF; jpg[1] = 0xD8; Ok(KeystoneLookCatalog.CheckBytes(jpg) == "" && KeystoneLookCatalog.CheckBytes(new byte[5000]) != "" && KeystoneLookCatalog.CheckBytes(new byte[10]) != "" && KeystoneLookCatalog.CheckBytes(new byte[3000001]) != "", "the byte check (jpeg, not a picture, empty, > 3 MB)");
@@ -134,6 +135,52 @@ public static class SeasonLookTests
         Ok(KeystoneLookCatalog.BandSlice(0.99, 1920, 34, 16.0 / 9)[0] + KeystoneLookCatalog.BandSlice(0.99, 1920, 34, 16.0 / 9)[1] <= 1 + 1e-9, "the slice stays inside the photo");
         Ok(KeystoneLookSettings.Read(k => k == "scene" ? "photo:aurora" : "").Scene == "PHOTO:AURORA" && KeystoneLookSettings.Read(k => k == "scene" ? "PHOTO:nope" : "").Scene == "MATCH", "PHOTO:<id> kept, unknown → MATCH");
         Ok(new KeystoneLookSettings { Scene = "PHOTO:SNOWNIGHT", Anim = "MATCH" }.AnimNow(D(2026, 7, 1)) == "SNOW" && new KeystoneLookSettings { Scene = "PHOTO:SNOWNIGHT" }.AnimNow(D(2026, 7, 1)) == "", "a photo's animation only when asked (MATCH)");
+        // 9. 📷 13m THEME COMBOS: every photo a full combo, every combo passes the contrast check at its default opacity, the click rules, the docked panel
+        {
+            var all = KeystoneLookCombos.All; var ic = CultureInfo.InvariantCulture;
+            Ok(all.Length >= 40 && all.Select(c => c.Id).Distinct().Count() == all.Length && all.Select(c => c.ThemeName).Distinct().Count() == all.Length, "≥ 40 combos, unique ids / template names (" + all.Length + ")");
+            Ok(ph.All(x => KeystoneLookCombos.ForPhoto(x.Id).Count >= 1), "every photo has at least one THEME COMBO");
+            Ok(ph.Count(x => x.Season == "FALL") >= 10 && ph[0].Season == "FALL" && KeystoneLookCombos.SeasonOrder[0] == "FALL" && all[0].Season == "FALL", "🍂 FALL first, ≥ 10 fall photos (" + ph.Count(x => x.Season == "FALL") + ")");
+            Ok(new[] { "GOLDBIRCH", "ASPENGOLD", "YELLOWLEAF", "GINKGO", "AVENUE", "GINKGOTUNNEL", "FOGGOLD", "LAKEMIST", "LAKEAMBER", "DUSKPEAKS", "MAPLESUN" }.All(i => KeystoneLookCatalog.Find(i) != null && KeystoneLookCatalog.Find(i).Season == "FALL"), "the golden / yellow-leaf fall photos are in the catalog");
+            Ok(new[] { "PINESNOW", "BLOSSOMNIGHT", "BLUEHOUR", "NEBULA", "CITYNIGHT", "MISTYRIDGES" }.All(i => KeystoneLookCatalog.Find(i) != null), "the other moods (winter pines, spring blossom night, ocean blue hour, nebula, city night, misty mountains)");
+            Ok(ph.Count(x => KeystoneLookCombos.ForPhoto(x.Id).Count >= 2) >= 15, "variations: ≥ 15 photos with 2–3 combos");
+            foreach (var x in ph)
+            {
+                Uri u; Ok(KeystoneLookCatalog.UrlOk(x.Url) && Uri.TryCreate(x.Url, UriKind.Absolute, out u) && u.Scheme == "https" && KeystoneLookCatalog.Hosts.Contains(u.Host), "photo " + x.Id + " URL https + an allowed host");
+                Ok(KeystoneSeasons.Argb(x.Mean).Length == 4 && KeystoneSeasons.Argb(x.Hi).Length == 4 && KeystoneLookBehind.Lum(x.Hi) >= KeystoneLookBehind.Lum(x.Mean) - 1e-9, "photo " + x.Id + " measured colours (mean ≤ bright patch)");
+                Ok(KeystoneLookCombos.SeasonOrder.Contains(x.Season), "photo " + x.Id + " season group " + x.Season);
+            }
+            var worst = new List<string>();
+            foreach (var c in all)
+            {
+                Ok(c.Photo != null && KeystoneLookCombos.SeasonOrder.Contains(c.Season) && c.Pct >= KeystoneLookSettings.BehindMin && c.Pct <= KeystoneLookSettings.BehindMax, "combo " + c.Id + " photo / season / opacity " + c.Pct);
+                Ok(new[] { c.Bg, c.Grid, c.Up, c.Down, c.WickUp, c.WickDown, c.Text, c.Cross, c.Accent, c.Accent2, c.Ink, c.Deep }.All(hx => hx != null && hx.StartsWith("#") && KeystoneSeasons.Argb(hx).Length == 4), "combo " + c.Id + " colours parse");
+                var k = KeystoneLookCombos.Check(c);
+                Ok(k.Ok, "combo " + c.Id + " contrast: " + k.Why + " (up " + Math.Min(k.UpMean, k.UpHi).ToString("0.0", ic) + ", down " + Math.Min(k.DownMean, k.DownHi).ToString("0.0", ic) + ", text " + k.TextMean.ToString("0.0", ic) + ", ΔE " + k.DeltaE.ToString("0", ic) + ")");
+                Ok(Math.Min(k.UpMean, k.UpHi) >= 3 && Math.Min(k.DownMean, k.DownHi) >= 3 && (k.DeltaE >= 35 || k.UpDown >= 2), "combo " + c.Id + " up / down ≥ 3 : 1 vs the background and distinct from each other");
+                Ok(Math.Abs(KeystoneLookBehind.Effective(KeystoneLookBehind.Lum(c.Bg), KeystoneLookBehind.Lum(c.Photo.Mean), c.Pct / 100.0, k.Scrim) - KeystoneLookBehind.Lum(c.Bg)) <= KeystoneLookBehind.Tol + 1e-9, "combo " + c.Id + " the 13l contrast guard holds at its opacity");
+                var pl = c.Palette(); Ok(pl.Accent == c.Accent && pl.Ink == c.Ink && pl.Deep == c.Deep, "combo " + c.Id + " palette = its accents");
+                var td = KeystoneLookCombos.ThemeDef(c); Ok(td.Length == 13 && td[0] == c.ThemeName && td[8] == KeystoneLookCombos.Group && td[12] == c.Id, "combo " + c.Id + " template row");
+                worst.Add(c.Id + " " + Math.Min(Math.Min(k.UpMean, k.UpHi), Math.Min(k.DownMean, k.DownHi)).ToString("0.0", ic));
+            }
+            Console.WriteLine("  📷 " + all.Length + " combos on " + ph.Length + " photos • weakest candle contrast: " + worst.OrderBy(t => double.Parse(t.Split(' ')[1], ic)).First());
+            // the checker itself: an unreadable combo fails, and says why
+            var bad = new KeystoneLookCombo { Id = "X.BAD", PhotoId = "GOLDBIRCH", Pct = 18, Bg = "#19150D", Up = "#2A2418", Down = "#2B2519", Text = "#3A3428" };
+            var kb = KeystoneLookCombos.Check(bad); Ok(!kb.Ok && kb.Why.Contains("up candles") && kb.Why.Contains("down candles") && kb.Why.Contains("axis text") && kb.Why.Contains("up ≈ down"), "the checker refuses dark-on-dark / up ≈ down: " + kb.Why);
+            var gb = KeystoneLookCombos.Find("GOLDBIRCH.WARM"); Ok(gb != null && !KeystoneLookCombos.Check(new KeystoneLookCombo { Id = "Y", PhotoId = "MISTYRIDGES", Pct = 40, Bg = "#101516", Up = "#606A70", Down = "#7A6060", Text = "#8090A0" }).Ok, "a dull pair over a bright photo at 40 % fails");
+            Ok(KeystoneLookCombos.DeltaE("#000000", "#FFFFFF") > 99 && KeystoneLookCombos.DeltaE("#35C9A5", "#35C9A5") < 1e-9, "ΔE76 sanity");
+            // click rules (13l toggle): a combo = its photo BEHIND at its opacity; the same again = the defaults; another combo switches; another scene leaves it behind
+            var t0s = new KeystoneLookSettings(); Ok(KeystoneLookCombos.Toggle(t0s, "GOLDBIRCH.WARM") && t0s.Scene == "PHOTO:GOLDBIRCH" && t0s.Place == "BEHIND" && t0s.BehindPct == gb.Pct && t0s.ComboNow == gb, "click a combo = photo BEHIND at its " + gb.Pct + " %");
+            Ok(KeystoneLookCombos.Toggle(t0s, "ASPENGOLD.MONO") && t0s.ComboNow.Id == "ASPENGOLD.MONO" && t0s.Scene == "PHOTO:ASPENGOLD", "another combo switches");
+            Ok(!KeystoneLookCombos.Toggle(t0s, "ASPENGOLD.MONO") && t0s.Combo == "" && t0s.Scene == "MATCH" && t0s.Place == "AROUND" && t0s.BehindPct == KeystoneLookSettings.BehindDefault, "the chosen combo again = back to the defaults");
+            KeystoneLookCombos.Toggle(t0s, "NEBULA.COSMIC"); t0s.Scene = "AURORA"; Ok(t0s.ComboNow == null, "another scene leaves the combo behind");
+            var rt = KeystoneLookSettings.Read(k0 => k0 == "combo" ? "lakemist.warm" : k0 == "scene" ? "PHOTO:LAKEMIST" : ""); Ok(rt.Combo == "LAKEMIST.WARM" && rt.ComboNow != null && rt.Write()["combo"] == "LAKEMIST.WARM", "the combo is remembered (read / write)");
+            Ok(KeystoneLookSettings.Read(k0 => k0 == "combo" ? "NOPE.X" : "").Combo == "" && new KeystoneLookSettings().Write()["combo"] == "", "an unknown combo = none");
+            Ok(!KeystoneLookCombos.Toggle(new KeystoneLookSettings(), "NOPE"), "an unknown combo does nothing");
+            Ok(KeystoneLookCombos.MiniCandles.All(m => m.Length == 4 && m[1] <= Math.Min(m[0], m[3]) && m[2] >= Math.Max(m[0], m[3])) && KeystoneLookCombos.MiniCandles.Any(m => m[3] < m[0]) && KeystoneLookCombos.MiniCandles.Any(m => m[3] > m[0]), "the mini-chart candles: high ≥ body ≥ low, both colours shown");
+            // 🎨 the docked STYLE panel keeps a real chart: 1366 / 1920 px with the order column
+            Ok(KeystoneStyleDock.Fits(1366, 300, 84) && KeystoneStyleDock.Fits(1920, 300, 84) && KeystoneStyleDock.PlotWidth(1920, 300, 84) > 1100 && !KeystoneStyleDock.Fits(1000, 300, 84), "the docked panel: the plot keeps " + KeystoneStyleDock.PlotWidth(1366, 300, 84) + " px at 1366, " + KeystoneStyleDock.PlotWidth(1920, 300, 84) + " px at 1920");
+        }
         Console.WriteLine(fails == 0 ? "SEASONS + SCENES TESTS PASSED (" + n + " checks)" : "SEASONS + SCENES TESTS FAILED " + fails + " of " + n);
         return fails == 0 ? 0 : 1;
     }
@@ -232,6 +279,50 @@ public static class SeasonLookTests
             h.Append("<div class='body'><div class='panel' style='border:1px solid " + Col(KeystoneSeasons.Alpha(pal.Accent, .34)) + "'>MNQ ▾ &nbsp; 1m 2m 5m 15m &nbsp; 🎨 " + p.ChartTheme + " ▾ &nbsp; BALANCE $51,240 &nbsp; <span style='color:#3AC488'>TODAY +$420</span></div><div class='chart' style='background:" + th[0] + "'>" + CandlesIn(th[2], th[3], th[1], 1388, 190) + "</div></div></div>");
         }
         h.Append("</body></html>"); File.WriteAllText(Path.Combine(outDir, "look-gallery.html"), h.ToString(), new UTF8Encoding(false)); Console.WriteLine("wrote " + Path.Combine(outDir, "look-gallery.html"));
+    }
+    // 📷 13m: the contact sheet of every THEME COMBO — the real photo (scratchpad copy of the catalog URL) under the combo's background at its opacity + the same scrim,
+    // the combo's grid / candles / wicks / price pill / axis text / crosshair / accents drawn over it — what the chart shows
+    static void Combos(string outDir, string photoRel)
+    {
+        Directory.CreateDirectory(outDir); var ic = CultureInfo.InvariantCulture;
+        var h = new StringBuilder("<!doctype html><html><head><meta charset='utf-8'><title>KeyStone 13m THEME COMBOS</title><style>body{margin:0;background:#07090f;color:#cfd7e6;font:13px 'Segoe UI',Arial,sans-serif;padding:18px 22px}h1{font-size:21px;margin:0 0 4px}h2{font-size:17px;margin:26px 0 8px;color:#e8c46a}.sub{color:#8a94a8;font-size:12px;max-width:1400px}.ph{margin:14px 0 4px;font-weight:700;font-size:13.5px}.ph span{font-weight:400;color:#8a94a8;font-size:11px}.row{display:flex;gap:12px;flex-wrap:wrap}.card{width:430px;background:#10141d;border-radius:10px;padding:6px;border:1px solid #232a38}.ch{position:relative;width:430px;height:230px;overflow:hidden}.ch img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.ch .s{position:absolute;inset:0}.band{height:20px;border-radius:6px 6px 0 0;position:relative;overflow:hidden}.band img{position:absolute;left:0;width:100%}.meta{font-size:11px;margin-top:5px;line-height:1.45}.sw{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px;margin:0 2px 0 6px;border:1px solid #0006}.ok{color:#5ad19a}.bad{color:#ff6b6b}</style></head><body>");
+        h.Append("<h1>📷 THEME COMBOS — BUILD 2026-11-13m (" + KeystoneLookCombos.All.Length + " combos on " + KeystoneLookCatalog.Photos.Length + " real photos)</h1><div class='sub'>Each card = the real photo BEHIND THE CHART at the combo's default opacity + the 13l contrast scrim in the combo's background colour, then the combo's grid, candles + wicks, price pill, axis text and crosshair — the layers the chart draws; the strip on top = the title band + glow line in the combo's accents. Contrast from the pure checker (tests/SeasonLookTests.cs): candles vs the plot at the photo's mean colour and its bright patch (≥ 3 : 1), axis text (≥ 4.5 : 1), up vs down ΔE76 (≥ 35) or ratio (≥ 2). Photos: Unsplash / Pexels License (free); KeyStone downloads each only when you click it.</div>");
+        foreach (var sn in KeystoneLookCombos.SeasonOrder)
+        {
+            var inS = KeystoneLookCombos.InSeason(sn); if (inS.Count == 0) continue; h.Append("<h2>" + KeystoneLookCombos.SeasonLabel(sn) + "</h2>");
+            foreach (var pid in inS.Select(c => c.PhotoId).Distinct())
+            {
+                var ph = KeystoneLookCatalog.Find(pid); h.Append("<div class='ph'>" + ph.Name + " <span>— " + ph.Mood + " • " + ph.Licence + " • " + ph.Url + "</span></div><div class='row'>");
+                foreach (var c in KeystoneLookCombos.ForPhoto(pid))
+                {
+                    var k = KeystoneLookCombos.Check(c); string img = photoRel + "/" + pid + ".jpg"; double op = c.Pct / 100.0; var pal = c.Palette();
+                    h.Append("<div class='card'><div class='band' style='background:" + c.Deep + "'><img src='" + img + "' style='top:-" + F(ph.BandY * 254 - 10) + "px;opacity:.9'><div style='position:absolute;inset:0;background:linear-gradient(90deg," + Col(KeystoneSeasons.Alpha(pal.Deep, .75)) + "," + Col(KeystoneSeasons.Alpha(pal.Deep, .15)) + " 45%," + Col(KeystoneSeasons.Alpha(pal.Deep, .6)) + ")'></div><div style='position:absolute;left:8px;top:3px;font-size:10px;font-weight:700;color:" + c.Ink + "'>◆ SPASIX <span style='color:" + c.Accent + "'>FUTURE</span> • ● LIVE TRADING</div></div>");
+                    h.Append("<div style='height:2px;background:linear-gradient(90deg," + c.Accent + "," + c.Accent2 + " 55%,transparent);box-shadow:0 0 6px " + c.Accent + "'></div>");
+                    h.Append("<div class='ch' style='background:" + c.Bg + "'><img src='" + img + "' style='opacity:" + F(op) + "'><div class='s' style='background:" + c.Bg + ";opacity:" + F(k.Scrim) + "'></div>" + ComboChart(c, 430, 230) + "</div>");
+                    h.Append("<div class='meta'><b>" + c.Name + "</b> • behind " + c.Pct + " % • <span class='" + (k.Ok ? "ok'>✓ contrast" : "bad'>✗ " + k.Why) + "</span><br>▲<span class='sw' style='background:" + c.Up + "'></span>" + c.Up + " ▼<span class='sw' style='background:" + c.Down + "'></span>" + c.Down + " bg<span class='sw' style='background:" + c.Bg + "'></span>" + c.Bg + " grid<span class='sw' style='background:" + c.Grid + "'></span>" + c.Grid + " text<span class='sw' style='background:" + c.Text + "'></span>" + c.Text + " accent<span class='sw' style='background:" + c.Accent + "'></span>" + c.Accent
+                        + "<br>up " + Math.Min(k.UpMean, k.UpHi).ToString("0.0", ic) + " : 1 • down " + Math.Min(k.DownMean, k.DownHi).ToString("0.0", ic) + " : 1 • text " + k.TextMean.ToString("0.0", ic) + " : 1 • ΔE " + k.DeltaE.ToString("0", ic) + " • scrim " + k.Scrim.ToString("0.00", ic) + "</div></div>");
+                }
+                h.Append("</div>");
+            }
+        }
+        h.Append("</body></html>"); File.WriteAllText(Path.Combine(outDir, "theme-combos.html"), h.ToString(), new UTF8Encoding(false)); Console.WriteLine("wrote " + Path.Combine(outDir, "theme-combos.html"));
+    }
+    static string ComboChart(KeystoneLookCombo c, int W, int H)
+    {
+        var r = new Random(11); var sb = new StringBuilder("<svg width='" + W + "' height='" + H + "' style='position:absolute;left:0;top:0'>"); int axis = 62, plotW = W - axis;
+        for (int g = 1; g < 5; g++) { double y = g * H / 5.0; sb.Append("<line x1='0' x2='" + plotW + "' y1='" + F(y) + "' y2='" + F(y) + "' stroke='" + c.Grid + "'/><text x='" + (plotW + 6) + "' y='" + F(y + 3.5) + "' fill='" + c.Text + "' font-size='10'>" + (25200 - g * 12).ToString("N0", CultureInfo.InvariantCulture) + "</text>"); }
+        for (int g = 1; g < 6; g++) { double x = g * plotW / 6.0; sb.Append("<line x1='" + F(x) + "' x2='" + F(x) + "' y1='0' y2='" + H + "' stroke='" + c.Grid + "'/>"); }
+        double px = H * 0.62, last = px; bool lastUp = true; double[] drift = { 0.9, 0.9, -1.2, -1.2, -1.0, 0.3, 0.8, 1.1, -0.4, -1.3, -1.1, -0.6 };
+        for (int i = 0; i < 36; i++)
+        {
+            double d = drift[(i / 3) % drift.Length]; double o = px, cl = px - d * 7 + (r.NextDouble() - 0.5) * 18, hi = Math.Min(o, cl) - 2 - r.NextDouble() * 9, lo = Math.Max(o, cl) + 2 + r.NextDouble() * 9;
+            if (cl < 30) cl = 30 + r.NextDouble() * 10; if (cl > H - 30) cl = H - 30 - r.NextDouble() * 10; hi = Math.Min(hi, Math.Min(o, cl) - 2); lo = Math.Max(lo, Math.Max(o, cl) + 2); px = cl; last = cl;
+            bool up = cl <= o; lastUp = up; double x = 8 + i * 10.0;
+            sb.Append("<line x1='" + F(x + 3) + "' x2='" + F(x + 3) + "' y1='" + F(hi) + "' y2='" + F(lo) + "' stroke='" + (up ? c.WickUp : c.WickDown) + "'/><rect x='" + F(x) + "' y='" + F(Math.Min(o, cl)) + "' width='6' height='" + F(Math.Max(1.5, Math.Abs(cl - o))) + "' fill='" + (up ? c.Up : c.Down) + "'/>");
+        }
+        sb.Append("<line x1='0' x2='" + plotW + "' y1='" + F(last) + "' y2='" + F(last) + "' stroke='" + (lastUp ? c.Up : c.Down) + "' stroke-dasharray='2,3' opacity='.7'/><rect x='" + (plotW + 1) + "' y='" + F(last - 8) + "' width='" + (axis - 3) + "' height='16' rx='2' fill='" + (lastUp ? c.Up : c.Down) + "'/><text x='" + (plotW + 5) + "' y='" + F(last + 4) + "' fill='" + c.Bg + "' font-size='10.5' font-weight='700'>25,163.25</text>");
+        double cx = plotW * 0.62, cy = H * 0.3; sb.Append("<line x1='0' x2='" + plotW + "' y1='" + F(cy) + "' y2='" + F(cy) + "' stroke='" + c.Cross + "' stroke-dasharray='3,3' opacity='.6'/><line x1='" + F(cx) + "' x2='" + F(cx) + "' y1='0' y2='" + H + "' stroke='" + c.Cross + "' stroke-dasharray='3,3' opacity='.6'/>");
+        return sb.Append("</svg>").ToString();
     }
     static string Candles()
     {

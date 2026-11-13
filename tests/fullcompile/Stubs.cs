@@ -285,7 +285,7 @@ namespace System.Windows.Input
 {
     public enum MouseButtonState { Released, Pressed }
     public enum MouseButton { Left, Middle, Right, XButton1, XButton2 }
-    public enum Key { None, Left, Right, Up, Down, Space, Home, End, Escape, Enter, Return, PageUp, PageDown, Add, Subtract, OemPlus, OemMinus, B, C, H, S, Delete, Back, D0, D1, D2, D3, D4, D5, D6, D7, D8, D9 }
+    public enum Key { None, Left, Right, Up, Down, Space, Home, End, Escape, Enter, Return, PageUp, PageDown, Add, Subtract, OemPlus, OemMinus, B, C, H, L, S, Delete, Back, D0, D1, D2, D3, D4, D5, D6, D7, D8, D9 }
     [Flags] public enum ModifierKeys { None = 0, Alt = 1, Control = 2, Shift = 4, Windows = 8 }
     public class Cursor { }
     public static class Cursors { public static Cursor Arrow, Hand, SizeAll, SizeWE, SizeNS, Cross, IBeam, Wait, ScrollAll, ScrollWE, ScrollNS, None, No; }
@@ -397,9 +397,9 @@ namespace System.Windows.Controls
         public RowDefinitionCollection RowDefinitions { get { return rows; } }
         public ColumnDefinitionCollection ColumnDefinitions { get { return cols; } }
         static readonly System.Runtime.CompilerServices.ConditionalWeakTable<UIElement, int[]> cells = new System.Runtime.CompilerServices.ConditionalWeakTable<UIElement, int[]>();   /* row, column (the attached values, like WPF) */
-        static int[] CellOf(UIElement e) { return cells.GetValue(e, k => new int[2]); }
-        public static void SetRow(UIElement e, int r) { if (e != null) CellOf(e)[0] = r; } public static void SetColumn(UIElement e, int c) { if (e != null) CellOf(e)[1] = c; } public static void SetRowSpan(UIElement e, int r) { } public static void SetColumnSpan(UIElement e, int c) { }
-        public static int GetRow(UIElement e) { return e == null ? 0 : CellOf(e)[0]; } public static int GetColumn(UIElement e) { return e == null ? 0 : CellOf(e)[1]; }
+        static int[] CellOf(UIElement e) { return cells.GetValue(e, k => new int[] { 0, 0, 1, 1 }); }
+        public static void SetRow(UIElement e, int r) { if (e != null) CellOf(e)[0] = r; } public static void SetColumn(UIElement e, int c) { if (e != null) CellOf(e)[1] = c; } public static void SetRowSpan(UIElement e, int r) { if (e != null) CellOf(e)[2] = r; } public static void SetColumnSpan(UIElement e, int c) { if (e != null) CellOf(e)[3] = c; }
+        public static int GetRow(UIElement e) { return e == null ? 0 : CellOf(e)[0]; } public static int GetColumn(UIElement e) { return e == null ? 0 : CellOf(e)[1]; } public static int GetRowSpan(UIElement e) { return e == null ? 1 : CellOf(e)[2]; } public static int GetColumnSpan(UIElement e) { return e == null ? 1 : CellOf(e)[3]; }
     }
     public class StackPanel : Panel { public Orientation Orientation { get; set; } }
     public enum GridResizeDirection { Auto, Columns, Rows } public enum GridResizeBehavior { BasedOnAlignment, CurrentAndNext, PreviousAndCurrent, PreviousAndNext }
