@@ -946,6 +946,40 @@ public static class UiSmokeTest
                     Console.WriteLine("      ⚡ default " + d0 + " • ☑ → " + mOn + " • chip → " + c1 + " • 🎯 " + rv.Substring(0, Math.Min(120, rv.Length)) + " • NinjaBroker built 0: OK");
                 });
             if (strategy == "MAD")
+                Step("🪟 BUILD 13l: ● LIVE TRADING — the 📰 news banner top-left with ✕ (hidden for this event, a NEW one shows, a small pill in its last 5 min), the caption buttons on their own solid pill (≥ 4.5 : 1) with a look on, the header's right group never clipped (wraps; RECONNECT kept), NOTHING sent", () =>
+                {
+                    var BF = BindingFlags.Instance | BindingFlags.NonPublic; Func<string, object> F = n => lab2.GetType().GetField(n, BF).GetValue(lab2);
+                    var nbMade = lab2.GetType().GetNestedType("NinjaBroker", BindingFlags.NonPublic).GetField("Made", BindingFlags.Static | BindingFlags.Public); int made0 = (int)nbMade.GetValue(null);
+                    Call(lab2, "OpenLiveTrading"); var lv = (System.Windows.Window)F("liveStudioWindow"); if (lv == null) throw new Exception("no LIVE TRADING");
+                    try
+                    {
+                        var nw = (Func<string, string>)F("studioNews"); if (nw == null) throw new Exception("📰 no studioNews hook"); nw("CLEAR");
+                        string n1 = nw("FAKE 157"); if (!n1.Contains("mode=FULL") || n1.Contains("x=-") || !n1.Contains("drawn=news.banner@8,")) throw new Exception("📰 the banner (top-left, with ✕): " + n1);
+                        string n2 = nw("X"); if (!n2.Contains("mode=NONE") || !n2.Contains("drawn=-") || n2.Contains("hidden=;")) throw new Exception("📰 ✕ must hide this event: " + n2);
+                        string n3 = nw("FAKE 12"); if (!n3.Contains("mode=FULL")) throw new Exception("📰 a NEW (earlier) event must show again: " + n3);   /* the saved calendar may hold a real event in the window: the stand-in one 12 min ahead comes first */
+                        nw("X"); string n4 = nw("STATE"); if (!n4.Contains("mode=NONE")) throw new Exception("📰 hidden again: " + n4);
+                        { var wsT = (Dictionary<string, string>)lab2.GetType().GetMethod("ReadStudioWorkspace", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, null); string hv; if (!wsT.TryGetValue("news.hide.live", out hv) || !hv.Contains("|")) throw new Exception("📰 the ✕ is remembered per window (news.hide.live)"); }
+                        nw("CLEAR"); string n5 = nw("STATE"); if (!n5.Contains("mode=NONE") && !n5.Contains("mode=FULL")) throw new Exception("📰 " + n5);
+                        // 🪟 the caption buttons: their own solid pill (non-transparent), ≥ 4.5 : 1 over any backdrop, with a look (a photo + snow) active
+                        var lookL = (Func<string, string>)F("studioLook"); lookL("SET scene=PHOTO:ALPINE"); lookL("SET anim=SNOW");
+                        var kwT = lv.GetType(); var pill = (System.Windows.Controls.Border)kwT.GetField("CapsPill").GetValue(lv); var capsB = (System.Collections.IList)kwT.GetField("CapButtons").GetValue(lv);
+                        var pb = pill == null ? null : pill.Background as System.Windows.Media.SolidColorBrush;
+                        if (pill == null || capsB.Count < 1 || pb == null || pb.Color.A < 0xE0) throw new Exception("🪟 the caption buttons need their own solid pill: " + (pill == null ? "none" : pb == null ? "no brush" : "alpha " + pb.Color.A));
+                        string pillHex = "#" + pb.Color.A.ToString("X2") + pb.Color.R.ToString("X2") + pb.Color.G.ToString("X2") + pb.Color.B.ToString("X2");
+                        foreach (System.Windows.Controls.Border cb in capsB) { var tb = (System.Windows.Controls.TextBlock)cb.Child; var fg = (System.Windows.Media.SolidColorBrush)tb.Foreground; string fh = "#FF" + fg.Color.R.ToString("X2") + fg.Color.G.ToString("X2") + fg.Color.B.ToString("X2"); double cr = KeystoneContrast.WorstOnPill(fh, pillHex); if (cr < 4.5) throw new Exception("🪟 caption " + tb.Text + " contrast " + cr.ToString("0.0") + " < 4.5"); }
+                        lookL("SET scene=MATCH"); lookL("SET anim=OFF");
+                        // 🪟 the header's right group: a WrapPanel holding ● LIVE + ↻ RECONNECT (never clipped) — the flow checked at 1920 / 1366 with the items' estimated widths
+                        var rh = FindAll<System.Windows.Controls.WrapPanel>(lv.Content).FirstOrDefault(x => Convert.ToString(x.Tag) == "live.head.right");
+                        if (rh == null || !rh.Children.Cast<object>().Any(x => Convert.ToString(((System.Windows.FrameworkElement)x).Tag) == "live.reconnect")) throw new Exception("🪟 the header's right group must be a WrapPanel with ↻ RECONNECT");
+                        Func<object, double> estW = o => { var all = FindAll<System.Windows.Controls.TextBlock>(o); var own = o as System.Windows.Controls.TextBlock; if (own != null) all.Add(own); double wv = all.Sum(t => 7.4 * (t.Text ?? "").Length * Math.Max(1, t.FontSize / 12)); return Math.Max(24, wv + 30); };
+                        var widths = rh.Children.Cast<System.Windows.UIElement>().Where(x => x.Visibility == System.Windows.Visibility.Visible).Select(x => Math.Min(estW(x), x is System.Windows.Controls.TextBlock && ((System.Windows.Controls.TextBlock)x).MaxWidth < 1e6 ? ((System.Windows.Controls.TextBlock)x).MaxWidth : 1e9)).ToList();
+                        foreach (var W0 in new[] { 1920.0, 1366.0 }) { double avail = W0 - 220; if (KeystoneHeadFit.Clipped(avail, widths)) throw new Exception("🪟 the header's right group is clipped at " + W0 + " px: " + string.Join(",", widths.Select(x => x.ToString("0")))); }
+                        if ((int)nbMade.GetValue(null) != made0) throw new Exception("🪟 13l built a NinjaBroker");
+                        Console.WriteLine("      🪟 13l: 📰 banner top-left + ✕ (hidden / a new event shows / remembered) • caption pill " + pillHex + " ≥ 4.5 : 1 over any photo • header right group wraps (" + string.Join(",", widths.Select(x => x.ToString("0"))) + " px) — never clipped at 1920 / 1366");
+                    }
+                    finally { lv.Close(); }
+                });
+            if (strategy == "MAD")
                 Step("⭐ BUILD 11z: your candle setups + order flow — the ⭐ OF ✔ / ✖ badge on an ACTIVE 3-SETUPS label (the only order flow on the 📈 CHART), the ⭐ OF CONFIRM chip hides it and stops the engine, NOTHING sent", () =>
                 {
                     var BF = BindingFlags.Instance | BindingFlags.NonPublic; Func<string, object> F = n => lab2.GetType().GetField(n, BF).GetValue(lab2);
@@ -1051,12 +1085,12 @@ public static class UiSmokeTest
                     string sem0 = semantic();
                     {   /* 🍂 13k defaults: season AUTO (the NY date), the matching DRAWN scene in the header band only, NO animation, nothing on the plot */
                         string seasonNow = KeystoneSeasons.Of(DateTime.Now);
-                        if (!look0.Contains("season=" + seasonNow) || !look0.Contains("scene=" + KeystoneSeasons.DefaultScene(seasonNow)) || !look0.Contains("anim=;") || !look0.Contains("timer=0") || !look0.Contains("veils=0/") || !look0.Contains("place=AROUND")) throw new Exception("🍂 13k defaults: " + look0);
+                        if (!look0.Contains("season=" + seasonNow) || !look0.Contains("scene=" + KeystoneSeasons.DefaultScene(seasonNow)) || !look0.Contains("anim=;") || !look0.Contains("timer=0") || !look0.Contains("behind=0/") || !look0.Contains("place=AROUND") || !look0.Contains("pct=18;") || !look0.Contains("animbehind=0")) throw new Exception("🍂 13k / 13l defaults: " + look0);
                         Console.WriteLine("      🍂 13k defaults: " + look0);
                     }
                     /* 🍂 13k: the ✋ 13e / 13h / 13i / 🖐 13j picking + drag tests below run with a scene, ❄ snow AND the faint veil ON (they must not change the order path / the pick) */
-                    lookH("SET scene=AURORA"); lookH("SET anim=SNOW"); lookH("SET place=FAINT");
-                    { string on = lookH("STATE"); if (!on.Contains("anim=SNOW") || !on.Contains("timer=1") || on.Contains("veils=0/")) throw new Exception("🍂 13k scene + snow + faint did not switch on: " + on); }
+                    lookH("SET scene=AURORA"); lookH("SET anim=SNOW"); lookH("SET place=BEHIND"); lookH("SET behindpct=40"); lookH("SET animbehind=1");   /* 🖼 13l: the scene BEHIND THE CHART at 40 % + ❄ snow behind the candles too */
+                    { string on = lookH("STATE"); if (!on.Contains("anim=SNOW") || !on.Contains("timer=1") || on.Contains("behind=0/") || !lookH("BEHIND").Contains("fx=1")) throw new Exception("🍂 13k / 13l scene + snow + behind did not switch on: " + on + " • " + lookH("BEHIND")); }
                     {   /* ✋ 13e (user: "dragging the take profit grabs the yellow profit stop — whatever I hover and click, that's the line we are moving"): a long with a 🔒 profit stop
                            a few px from its take profit — at every cursor point the line / label the hover lights is the one the click path grabs; off the labels the NEAREST line */
                         var lp = (Func<string, string>)F("studioLinePick"); if (lp == null) throw new Exception("✋ no studioLinePick hook");
@@ -1259,15 +1293,14 @@ public static class UiSmokeTest
                         foreach (var g in plots)
                         {
                             var kids = g.Children.Cast<System.Windows.FrameworkElement>().ToList(); var tags = kids.Select(k => Convert.ToString(k.Tag)).ToList();
-                            if (tags.Any(t => t.StartsWith("look.") && t != "look.veil")) throw new Exception("🍂 only the veil may sit in a plot: " + string.Join(",", tags));
-                            int iv = tags.IndexOf("look.veil"); if (iv < 0 || iv >= kids.Count - 1 || kids[iv].IsHitTestVisible) throw new Exception("🍂 the veil must sit under the mouse layer and never be hit-testable: " + string.Join(",", tags));
-                            if (kids[iv].Opacity > 0.06 + 1e-9) throw new Exception("🍂 the faint veil must be ≤ 6 %: " + kids[iv].Opacity);
+                            if (tags.Any(t => t.StartsWith("look.") && t != "look.behind")) throw new Exception("🖼 only the BEHIND layer may sit in a plot: " + string.Join(",", tags));
+                            int ib = tags.IndexOf("look.behind"), ic = tags.IndexOf("chart.plot"); if (ib < 0 || ib >= ic || kids[ib].IsHitTestVisible) throw new Exception("🖼 BEHIND THE CHART must sit UNDER the canvas (the candles above) and never be hit-testable: " + string.Join(",", tags));
                         }
                         var lookEls = allEl.Where(x => Convert.ToString(x.Tag).StartsWith("look.")).ToList(); var interactive = new[] { "look.gallery", "look.chip", "look.tile.", "look.keep", "look.quote.host", "look.quote", "look.quote.x", "look.note", "look.band.host" };
                         var badHit = lookEls.Where(x => x.IsHitTestVisible && !interactive.Any(t => Convert.ToString(x.Tag).StartsWith(t))).Select(x => Convert.ToString(x.Tag)).ToList(); if (badHit.Count > 0) throw new Exception("🍂 hit-testable look layers: " + string.Join(",", badHit));
                         if (!lookEls.Any(x => Convert.ToString(x.Tag) == "look.fx") || !lookEls.Any(x => Convert.ToString(x.Tag) == "look.band.scene")) throw new Exception("🍂 the band layers are missing");
                         // ✨ the animation's frames never touch the chart's render path
-                        bool perfWas = KeystonePerf.On; int uiWas = KeystonePerf.UiThread; KeystonePerf.UiThread = System.Threading.Thread.CurrentThread.ManagedThreadId; KeystonePerf.On = true; KeystonePerf.Reset(); KeystoneArc5MResearchLab.LookForceActive = true; long inv0 = System.Windows.UIElement.TestInvalidations;
+                        lookH("SET animbehind=0"); bool perfWas = KeystonePerf.On; int uiWas = KeystonePerf.UiThread; KeystonePerf.UiThread = System.Threading.Thread.CurrentThread.ManagedThreadId; KeystonePerf.On = true; KeystonePerf.Reset(); KeystoneArc5MResearchLab.LookForceActive = true; long inv0 = System.Windows.UIElement.TestInvalidations;
                         lookH("TICKS 90"); var rowsK = KeystonePerf.Rows(); KeystonePerf.On = perfWas; KeystonePerf.UiThread = uiWas; string stK = lookH("STATE");
                         if (rowsK.Any(rr => rr.Name.Contains("render") || rr.Name.StartsWith("of."))) throw new Exception("🍂 animation frames ran the chart / order flow: " + string.Join(",", rowsK.Select(rr => rr.Name)));
                         var fxRow = rowsK.FirstOrDefault(rr => rr.Name == "look.fx"); if (fxRow == null || fxRow.Count != 90 || System.Windows.UIElement.TestInvalidations - inv0 != 90) throw new Exception("🍂 90 frames = 90 invalidations of the fx layer only: " + (System.Windows.UIElement.TestInvalidations - inv0) + " • " + stK);
@@ -1291,13 +1324,55 @@ public static class UiSmokeTest
                         lookH("FILE " + pic); if (!lookH("STATE").Contains("file=PICTURE")) throw new Exception("🍂 MY PICTURE: " + lookH("STATE"));
                         lookH("SET lowpower=1"); int pz0 = System.Windows.Controls.MediaElement.TestPauses; lookH("FILE " + vid); string vd1 = lookH("STATE");
                         var me = FindAll<System.Windows.Controls.MediaElement>(bt.Content).FirstOrDefault(); if (!vd1.Contains("file=VIDEO") || me == null || !me.IsMuted || me.IsHitTestVisible || System.Windows.Controls.MediaElement.TestPauses <= pz0) throw new Exception("🍂 MY VIDEO: muted, never hit-testable, paused in LOW POWER: " + vd1);
-                        if (!lookH("STATE").Contains("veils=0/")) throw new Exception("🍂 a video must never be drawn inside the plot: " + lookH("STATE"));
-                        lookH("SET scene=MATCH"); lookH("SET anim=OFF"); lookH("SET place=AROUND"); lookH("SET lowpower=0"); lookH("SET season=AUTO"); try { System.IO.Directory.Delete(tmpD, true); } catch { }
+                        { string bv = lookH("BEHIND"); if (bv.Contains("photo=1") || bv.Contains("scene=1")) throw new Exception("🍂 a video must never be drawn inside the plot: " + bv); }
+                        lookH("SET scene=MATCH"); lookH("SET anim=OFF"); lookH("SET place=AROUND"); lookH("SET behindpct=18"); lookH("SET animbehind=0"); lookH("SET lowpower=0"); lookH("SET season=AUTO"); try { System.IO.Directory.Delete(tmpD, true); } catch { }
                         string ln = lookH("LINE"); if (!ln.EndsWith("|Visible") || ln.Length < 12) throw new Exception("🍂 the header quote line: " + ln);
-                        string fin = lookH("STATE"); if (!fin.Contains("anim=;") || !fin.Contains("timer=0") || !fin.Contains("veils=0/")) throw new Exception("🍂 back to the defaults: " + fin);
+                        string fin = lookH("STATE"); if (!fin.Contains("anim=;") || !fin.Contains("timer=0") || !fin.Contains("behind=0/")) throw new Exception("🍂 back to the defaults: " + fin);
                         if (!System.IO.File.ReadAllText(System.IO.Path.Combine((string)labT.GetMethod("StudioFolder", sfB).Invoke(null, null), "Workspace.txt")).Contains("look.bt.anim=OFF")) throw new Exception("🍂 the look is remembered per window (look.bt.*)");
                         if ((int)nbMade.GetValue(null) != made0) throw new Exception("🍂 the look built a NinjaBroker");
                         Console.WriteLine("      🍂 13k: ✋ / 🖐 picking passed with AURORA + ❄ snow + the 5 % veil ON • veil under the mouse layer, ≤ 6 % • 90 frames = 90 fx invalidations, 0 chart renders • a frame (step + drawing list) " + bench + " ms • scene layers " + rnd + " • P/L / candle colours unchanged in every season • gallery inside the window, hover / leave / BACK • photo fallback + note + chart match • missing file / picture / muted video in LOW POWER • quote: " + ln);
+                    }
+                    {   /* 🎨 13l (user: "selection / unselection don't work and it takes me all the way up" • "I thought the pictures would be transparent on the chart background"):
+                           the chips toggle IN PLACE (the panel is never rebuilt → the scroll stays), the chosen chip again = the group's default; 🖼 BEHIND THE CHART = a picture /
+                           scene UNDER the candles at 5–40 % with the contrast scrim; ✨ optional faint particles behind the candles; 🎨 LOOK first in the template menu + a toolbar button */
+                        Func<string, string, string> part = (st, key) => { var it = st.Split(';').FirstOrDefault(x => x.StartsWith(key + "=")); return it == null ? "" : it.Substring(key.Length + 1); };
+                        Func<string, string, double> num = (st, key) => double.Parse(part(st, key), System.Globalization.CultureInfo.InvariantCulture);
+                        var tmpL = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ks-look13l-" + Guid.NewGuid().ToString("N")); System.IO.Directory.CreateDirectory(tmpL); string picL = System.IO.Path.Combine(tmpL, "alpine.jpg"); System.IO.File.WriteAllBytes(picL, new byte[4000]);
+                        lookH("SET place=BEHIND"); lookH("FILE " + picL); string b1 = lookH("BEHIND"); var seg1 = b1.Split('|')[0];
+                        if (part(seg1, "vis") != "1" || part(seg1, "under") != "1" || part(seg1, "hit") != "0" || part(seg1, "cvclear") != "1" || part(seg1, "photo") != "1" || part(seg1, "op") != "0.18" || part(seg1, "frozen") != "1" || part(seg1, "cache") != "1") throw new Exception("🖼 a picture BEHIND THE CHART at 18 %: under the canvas, the canvas transparent, one frozen bitmap-cached brush, never hit-testable: " + b1);
+                        if (Math.Abs(num(seg1, "efflum") - num(seg1, "bglum")) > KeystoneLookBehind.Tol + 1e-6) throw new Exception("🖼 the contrast guard must keep the plot's luminance near the template's: " + seg1);
+                        // the gallery: open, scroll down, select → unselect: the ✓ moves in place, nothing rebuilt, the scroll offset kept
+                        lookH("OPEN"); string g0 = lookH("GAL"); lookH("SCROLL 420");
+                        lookH("PRESS ANIM:SNOW"); string sA = lookH("STATE"), tA = lookH("CHIPTEXT ANIM:SNOW"), tOff = lookH("CHIPTEXT ANIM:OFF");
+                        if (!sA.Contains("chosenanim=SNOW") || !sA.Contains("anim=SNOW") || !tA.StartsWith("✓ ") || tOff.StartsWith("✓")) throw new Exception("🎨 select ❄ SNOW: " + sA + " • " + tA + " • " + tOff);
+                        lookH("PRESS ANIM:SNOW"); string sB = lookH("STATE"), tB = lookH("CHIPTEXT ANIM:SNOW"), tOff2 = lookH("CHIPTEXT ANIM:OFF");
+                        if (!sB.Contains("chosenanim=OFF") || !sB.Contains("anim=;") || tB.StartsWith("✓") || !tOff2.StartsWith("✓ ")) throw new Exception("🎨 ✓ SNOW clicked again must turn the animation OFF: " + sB + " • " + tB + " • " + tOff2);
+                        string gl1 = lookH("GAL"); if (part(gl1, "builds") != part(g0, "builds") || part(gl1, "offset") != "420" || part(gl1, "sv") != part(g0, "sv") || int.Parse(part(gl1, "refreshes")) < int.Parse(part(g0, "refreshes")) + 2) throw new Exception("🎨 a choice must not rebuild the gallery / jump to the top: " + g0 + " → " + gl1);
+                        lookH("CLICK AURORA"); string gT = lookH("GAL"); if (!lookH("STATE").Contains("chosen=AURORA") || part(gT, "tile") != "AURORA") throw new Exception("🎨 the AURORA tile: " + lookH("STATE") + " • " + gT);
+                        lookH("CLICK AURORA"); if (!lookH("STATE").Contains("chosen=MATCH") || part(lookH("GAL"), "tile") != "MATCH") throw new Exception("🎨 the chosen tile again = back to ✏ MATCH: " + lookH("STATE"));
+                        lookH("PRESS PLACE:BEHIND"); lookH("PRESS PLACE:BEHIND"); if (!lookH("STATE").Contains("chosenplace=BEHIND")) throw new Exception("🎨 PLACEMENT is a radio (always a value): " + lookH("STATE"));
+                        lookH("PRESS QUOTES:OFF"); if (!lookH("CHIPTEXT QUOTES:OFF").StartsWith("✓")) throw new Exception("🎨 QUOTES OFF"); lookH("PRESS QUOTES:OFF"); if (!lookH("CHIPTEXT QUOTES:BOTH").StartsWith("✓")) throw new Exception("🎨 the chosen HEADER LINE again = QUOTES + REMINDERS");
+                        lookH("HOVER MOUNTAINS"); if (!lookH("STATE").Contains("look=MOUNTAINS")) throw new Exception("🎨 hover still previews: " + lookH("STATE")); lookH("LEAVE");
+                        // the drawn scene behind + the opacity slider (live, no rebuild) + the contrast guard at 40 %
+                        lookH("CLICK FOREST"); lookH("OPACITY 40"); string b2 = lookH("BEHIND"); var seg2 = b2.Split('|')[0];
+                        if (part(seg2, "scene") != "1" || part(seg2, "op") != "0.40" || Math.Abs(num(seg2, "efflum") - num(seg2, "bglum")) > KeystoneLookBehind.Tol + 1e-6 || !lookH("STATE").Contains("pct=40")) throw new Exception("🖼 the scene behind at 40 % (slider) within the contrast guard: " + b2);
+                        if (part(lookH("GAL"), "builds") != part(g0, "builds") || part(lookH("GAL"), "offset") != "420") throw new Exception("🎨 the slider must not rebuild / scroll: " + lookH("GAL"));
+                        // ✨ the faint animation behind the candles (☑, ≤ 25 %, shares the 150 budget), frames touch only its layers — never the chart's render
+                        lookH("PRESS ANIM:SNOW"); lookH("PRESS ANIMBEHIND"); string b3 = lookH("BEHIND"); var seg3 = b3.Split('|')[0];
+                        if (part(seg3, "fx") != "1" || num(seg3, "fxop") > 0.25 + 1e-9 || b3.Split('|').Sum(x => (int)num(x.Split(new[] { ";renders=" }, StringSplitOptions.None)[0], "fxn")) > KeystoneParticles.Max) throw new Exception("🖼 ✨ behind the candles: ≤ 25 %, ≤ 150 particles in all: " + b3);
+                        { bool pw = KeystonePerf.On; int uw = KeystonePerf.UiThread; KeystonePerf.UiThread = System.Threading.Thread.CurrentThread.ManagedThreadId; KeystonePerf.On = true; KeystonePerf.Reset(); KeystoneArc5MResearchLab.LookForceActive = true; long i0 = System.Windows.UIElement.TestInvalidations;
+                          lookH("TICKS 30"); var rr0 = KeystonePerf.Rows(); KeystonePerf.On = pw; KeystonePerf.UiThread = uw; KeystoneArc5MResearchLab.LookForceActive = false; int fxOn = b3.Split('|').Count(x => x.Contains("fx=1"));
+                          if (rr0.Any(rr => rr.Name.Contains("render") || rr.Name.StartsWith("of.")) || System.Windows.UIElement.TestInvalidations - i0 != 30 * (1 + fxOn)) throw new Exception("🖼 ✨ 30 frames = the band + " + fxOn + " behind layer(s) only: " + (System.Windows.UIElement.TestInvalidations - i0) + " • " + string.Join(",", rr0.Select(rr => rr.Name))); }
+                        string benchB = lookH("BENCHB 300");
+                        lookH("BACK"); string bk = lookH("STATE"); if (!bk.Contains("gallery=0") || !bk.Contains("pct=18") || !bk.Contains("animbehind=0") || !bk.Contains("file=PICTURE")) throw new Exception("🎨 ↺ BACK restores the look from before the gallery: " + bk);
+                        // 🎨 LOOK on top of the template menu + its own toolbar button
+                        string mFirst = lookH("MENU"); if (!mFirst.StartsWith("look.menu|")) throw new Exception("🎨 LOOK must be the FIRST item of the template menu: " + mFirst);
+                        string tbar = lookH("TOOLBAR"); if (!tbar.StartsWith("1;") && !tbar.StartsWith("2;") || !tbar.Contains("🎨 LOOK")) throw new Exception("🎨 the toolbar's 🎨 LOOK button: " + tbar);
+                        int gB0 = int.Parse(part(lookH("GAL"), "builds")); { var lb0 = FindAll<System.Windows.Controls.Button>(bt.Content).First(x => Convert.ToString(x.Tag) == "look.toolbar"); lb0.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); } if (!lookH("STATE").Contains("gallery=1")) throw new Exception("🎨 the toolbar button opens the gallery"); lookH("BACK");
+                        lookH("SET place=AROUND"); lookH("SET behindpct=18"); lookH("SET animbehind=0"); lookH("SET anim=OFF"); lookH("SET scene=MATCH"); lookH("SET file="); try { System.IO.Directory.Delete(tmpL, true); } catch { }
+                        { string e0 = lookH("BEHIND"); if (e0.Contains("vis=1") || e0.Contains("cvclear=1")) throw new Exception("🖼 AROUND again = the plain plot background: " + e0); }
+                        if ((int)nbMade.GetValue(null) != made0) throw new Exception("🎨 13l built a NinjaBroker");
+                        Console.WriteLine("      🎨 13l: ✓ SNOW → clicked again = OFF in place (builds " + part(gl1, "builds") + ", offset 420 kept) • tile again = MATCH • PLACEMENT radio • 🖼 picture behind at 18 % (scrim " + part(seg1, "scrim") + ", plot lum " + part(seg1, "efflum") + " vs " + part(seg1, "bglum") + ") • scene at 40 % (scrim " + part(seg2, "scrim") + ") • ✨ behind ≤ 25 %, a frame " + benchB + " ms • 🎨 LOOK first in the menu + toolbar • the ✋ / 🖐 picking ran with the scene BEHIND at 40 % + snow behind");
                     }
                     var desk = (Func<string, string>)F("studioOfDesk"); if (desk == null) throw new Exception("no ORDERFLOW desk hook");
                     {   /* 🧼 11y (user: "I will stick to my candlestick strategies"): the 📈 CHART view shows NO order flow by default (decision, toasts, setup lines, zones, events, battle map) */

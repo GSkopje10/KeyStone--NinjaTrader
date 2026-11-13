@@ -113,6 +113,15 @@ public static class PerfTest
         if (fxMs + frameMs * fxN > 3) { Console.WriteLine("FAIL  the look over its 3 ms/s budget: " + (fxMs + frameMs * fxN).ToString("0.00") + " ms/s"); fails++; }
         if (f.Rows.Any(r => r.Name.StartsWith("look.") && r.Name != "look.fx" && r.Name != "look.quote" && r.Name != "look.apply")) { Console.WriteLine("FAIL  unexpected look work"); fails++; }
         if (f.OfWork != 0) { Console.WriteLine("FAIL  the look must not wake the order-flow engine"); fails++; }
+        // 🖼 13l: the scene BEHIND THE CHART at 40 % + ✨ snow behind the candles (the extra over F must stay ≤ 3 ms/s)
+        lookF("SET place=BEHIND"); lookF("SET behindpct=40"); lookF("SET animbehind=1");
+        var g = Run("G. 🖼 13l LOOK: scene BEHIND THE CHART 40 % + ❄ snow in the band AND behind the candles", secs, 30, timers); Print(g);
+        double gMs = rowMs(g, "look.fx"), gN = rowN(g, "look.fx"), frameB = double.Parse(lookF("BENCHB 600"), System.Globalization.CultureInfo.InvariantCulture);
+        double extra = (gMs - fxMs) + frameB * gN;
+        Console.WriteLine("PERF  🖼 BEHIND: timer " + gN.ToString("0.0") + " frames/s, " + gMs.ToString("0.00") + " ms/s (step + invalidate, band + behind) vs " + fxMs.ToString("0.00") + " in F • the behind particles' drawing lists " + frameB.ToString("0.000") + " ms a frame → extra ≈ " + extra.ToString("0.00") + " ms/s (budget 3 ms/s) • ui.render " + rowN(g, "ui.render").ToString("0.0") + "/s • UI busy " + f.UiMsPerSec.ToString("0.0") + " → " + g.UiMsPerSec.ToString("0.0") + " ms/s • " + lookF("BEHIND").Split('|')[0]);
+        if (extra > 3) { Console.WriteLine("FAIL  the animation behind the chart is over its 3 ms/s extra budget: " + extra.ToString("0.00")); fails++; }
+        if (g.OfWork != 0) { Console.WriteLine("FAIL  BEHIND must not wake the order-flow engine"); fails++; }
+        lookF("SET place=AROUND"); lookF("SET behindpct=18"); lookF("SET animbehind=0");
         lookF("SET anim=OFF"); lookF("SET scene=MATCH"); KeystoneArc5MResearchLab.LookForceActive = false;
         var f0 = Run("F0. 🍂 animation OFF again (the default): no look frames", Math.Min(secs, 3), 30, timers); if (rowN(f0, "look.fx") > 0.01) { Console.WriteLine("FAIL  the look timer must stop when the animation is OFF"); fails++; }
         Console.WriteLine("SUMMARY  B open tab: OF UI " + b.OfUiMsPerSec.ToString("0.0") + " ms/s (longest " + b.MaxOfBlock.ToString("0.0") + " ms) • D chart chip: OF UI " + d.OfUiMsPerSec.ToString("0.0") + " ms/s (longest " + d.MaxOfBlock.ToString("0.0") + " ms) • A / C / E idle: " + a.OfWork + " / " + c.OfWork + " / " + e.OfWork + " work units");

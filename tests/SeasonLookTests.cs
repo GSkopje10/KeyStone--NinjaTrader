@@ -82,13 +82,40 @@ public static class SeasonLookTests
         Ok(KeystoneParticles.CountFor("", 1920, false) == 0 && KeystoneParticles.CountFor("SNOW", 0, false) == 0, "off = none");
         // 6. settings: defaults, read / write, per-window independence, MATCH
         var d0 = KeystoneLookSettings.Read(k => ""); Ok(d0.Season == "AUTO" && d0.Scene == "MATCH" && d0.Anim == "OFF" && d0.Place == "AROUND" && d0.Quotes == "BOTH" && !d0.LowPower, "defaults: season AUTO, scene MATCH (static), animation OFF, around the chart");
-        var d1 = new KeystoneLookSettings { Season = "WINTER", Scene = "AURORA", Anim = "MATCH", Place = "FAINT", Quotes = "REMINDERS", Reduce = true, LowPower = true, File = "C:\\x.png" }; var wr = d1.Write(); var d2 = KeystoneLookSettings.Read(k => wr.ContainsKey(k) ? wr[k] : "");
-        Ok(d2.Season == "WINTER" && d2.Scene == "AURORA" && d2.Anim == "MATCH" && d2.Place == "FAINT" && d2.Quotes == "REMINDERS" && d2.Reduce && d2.LowPower && d2.File == "C:\\x.png", "round trip");
+        var d1 = new KeystoneLookSettings { Season = "WINTER", Scene = "AURORA", Anim = "MATCH", Place = "BEHIND", BehindPct = 27, AnimBehind = true, Quotes = "REMINDERS", Reduce = true, LowPower = true, File = "C:\\x.png" }; var wr = d1.Write(); var d2 = KeystoneLookSettings.Read(k => wr.ContainsKey(k) ? wr[k] : "");
+        Ok(d2.Season == "WINTER" && d2.Scene == "AURORA" && d2.Anim == "MATCH" && d2.Place == "BEHIND" && d2.BehindPct == 27 && d2.AnimBehind && d2.Quotes == "REMINDERS" && d2.Reduce && d2.LowPower && d2.File == "C:\\x.png", "round trip");
         Ok(d2.AnimNow(D(2026, 7, 1)) == "STARS", "MATCH under the aurora = stars");
         Ok(KeystoneLookSettings.Read(k => k == "season" ? "nonsense" : "").Season == "AUTO", "bad values fall back");
         Ok(d0.SceneNow(D(2026, 11, 13)) == "FOREST" && d0.SceneNow(D(2026, 1, 13)) == "SNOWPEAKS" && d0.AnimNow(D(2026, 11, 13)) == "", "MATCH follows the season; no animation by default");
         Ok(new KeystoneLookSettings { Season = "OFF" }.SceneNow(D(2026, 11, 13)) == "", "season OFF + MATCH = no scene");
-        Ok(KeystoneLookSettings.FaintOpacity <= 0.06, "faint ≤ 6 %");
+        // 🖼 13l: BEHIND THE CHART — 5 … 40 %, 18 % by default, 13k's saved FAINT = BEHIND at 5 %, the optional animation ≤ 25 %
+        Ok(d0.BehindPct == 18 && !d0.AnimBehind && KeystoneLookSettings.AnimBehindMax <= 0.25, "BEHIND defaults: 18 %, no animation behind the candles");
+        Ok(KeystoneLookSettings.Read(k => k == "behindpct" ? "90" : k == "place" ? "BEHIND" : "").BehindPct == 40 && KeystoneLookSettings.Read(k => k == "behindpct" ? "1" : "").BehindPct == 5 && KeystoneLookSettings.Read(k => k == "behindpct" ? "x" : "").BehindPct == 18, "opacity clamped 5 … 40 (bad = 18)");
+        { var f0 = KeystoneLookSettings.Read(k => k == "place" ? "FAINT" : ""); Ok(f0.Place == "BEHIND" && f0.BehindPct == 5, "13k FAINT → BEHIND at 5 %"); var f1 = KeystoneLookSettings.Read(k => k == "place" ? "FAINT" : k == "behindpct" ? "22" : ""); Ok(f1.Place == "BEHIND" && f1.BehindPct == 22, "FAINT with a saved % keeps it"); }
+        // 13l: the gallery's chip groups — the chosen chip again = the group's default; placement is a plain radio
+        Ok(KeystoneLookSettings.Toggle("ANIM", "SNOW", "SNOW") == "OFF" && KeystoneLookSettings.Toggle("ANIM", "OFF", "SNOW") == "SNOW" && KeystoneLookSettings.Toggle("ANIM", "OFF", "OFF") == "OFF" && KeystoneLookSettings.Toggle("ANIM", "RAIN", "SNOW") == "SNOW", "ANIMATION: ✓ SNOW clicked again = OFF");
+        Ok(KeystoneLookSettings.Toggle("SCENE", "AURORA", "AURORA") == "MATCH" && KeystoneLookSettings.Toggle("SCENE", "PHOTO:SNOWNIGHT", "PHOTO:SNOWNIGHT") == "MATCH" && KeystoneLookSettings.Toggle("SCENE", "MATCH", "MATCH") == "MATCH", "SCENE: the chosen tile again = MATCH");
+        Ok(KeystoneLookSettings.Toggle("SEASON", "FALL", "FALL") == "AUTO" && KeystoneLookSettings.Toggle("QUOTES", "OFF", "OFF") == "BOTH" && KeystoneLookSettings.Toggle("PLACE", "BEHIND", "BEHIND") == "BEHIND", "SEASON → AUTO, HEADER LINE → BOTH, PLACEMENT stays");
+        // 🖼 13l: the contrast guard — a dark template + a bright photo: the scrim keeps the plot within 0.08 luminance of the template; a dim photo needs no scrim
+        foreach (var bg in new[] { "#0B0F17", "#131722", "#FFFFFF", "#1E222D" })
+            foreach (var img in new[] { 0.05, 0.3, 0.6, 0.95 })
+                foreach (var pc in new[] { 5, 18, 40 })
+                {
+                    double bl = KeystoneLookBehind.Lum(bg), sc = KeystoneLookBehind.Scrim(bl, img, pc / 100.0), ef = KeystoneLookBehind.Effective(bl, img, pc / 100.0, sc);
+                    Ok(sc >= 0 && sc <= 1 && Math.Abs(ef - bl) <= KeystoneLookBehind.Tol + 1e-9, "contrast guard " + bg + " img " + img + " @" + pc + "%: scrim " + sc.ToString("0.00") + " eff " + ef.ToString("0.000") + " vs " + bl.ToString("0.000"));
+                }
+        Ok(KeystoneLookBehind.Scrim(KeystoneLookBehind.Lum("#0B0F17"), 0.25, 0.18) == 0 && KeystoneLookBehind.Scrim(KeystoneLookBehind.Lum("#0B0F17"), 0.95, 0.40) > 0.5, "a dim photo at 18 % = no scrim; a snow photo at 40 % = a strong scrim");
+        Ok(KeystoneLookBehind.CapPerPlot(1) == 150 && KeystoneLookBehind.CapPerPlot(2) == 75 && KeystoneLookBehind.CapPerPlot(4) == 37, "the 150-particle budget is shared by the plots");
+        { var pz = new KeystoneParticles(); pz.Reset("SNOW", 1800, 700, false, 3, 75); Ok(pz.N == 75, "a plot's particles capped (" + pz.N + ")"); }
+        // 📰 13l: the news banner's ✕ — hidden for THIS event; a NEW one shows; the hidden one comes back as a small pill in its last 5 minutes
+        { string k1 = KeystoneNewsBanner.Key("Core PPI m/m", D(2026, 11, 13, 8, 30)), k2 = KeystoneNewsBanner.Key("CPI m/m", D(2026, 11, 14, 8, 30));
+          Ok(KeystoneNewsBanner.Mode(k1, "", 157) == "FULL" && KeystoneNewsBanner.Mode(k1, k1, 157) == "NONE" && KeystoneNewsBanner.Mode(k1, k1, 4) == "PILL" && KeystoneNewsBanner.Mode(k1, k1, -3) == "PILL" && KeystoneNewsBanner.Mode(k1, k1, -6) == "NONE" && KeystoneNewsBanner.Mode(k2, k1, 157) == "FULL", "news ✕: hidden / pill in the last 5 min / a new event shows"); }
+        // 🪟 13l: caption buttons — the glyphs on their pill stay ≥ 4.5 : 1 over ANY backdrop (black … white photos)
+        Ok(KeystoneContrast.WorstOnPill("#FFE8EEF8", "#F0101624") >= 4.5, "caption glyphs ≥ 4.5 : 1 on the pill (worst " + KeystoneContrast.WorstOnPill("#FFE8EEF8", "#F0101624").ToString("0.0") + ")");
+        Ok(KeystoneContrast.WorstOnPill("#FFC8D2E6", "#00000000") < 4.5, "without the pill a white photo would wash them out (the 13k bug)");
+        // 🪟 13l: the header's right-hand group flows (never clipped) at 1920 and 1366 px
+        { var ws0 = new double[] { 210, 150, 300, 230, 120, 128 }; Ok(!KeystoneHeadFit.Clipped(1920 - 200, ws0) && !KeystoneHeadFit.Clipped(1366 - 200, ws0) && KeystoneHeadFit.Flow(1166, ws0).Max(t => t.Item1) == 0 && KeystoneHeadFit.Flow(900, ws0).Max(t => t.Item1) >= 1 && !KeystoneHeadFit.Clipped(900, ws0), "the right group fits one row at 1920 / 1366 and wraps (never clipped) when narrower instead of clipping (1920 / 1366)");
+          Ok(KeystoneHeadFit.NewsWidth(1920, 200, 900) == 300 && KeystoneHeadFit.NewsWidth(1366, 200, 900) == 258 && KeystoneHeadFit.NewsWidth(1000, 200, 900) == 140, "the news chip shrinks first (300 → 140)"); }
         Ok(new KeystoneLookSettings { HideDay = "2026-11-13" }.QuotesHiddenOn(D(2026, 11, 13, 23, 0)) && !new KeystoneLookSettings { HideDay = "2026-11-13" }.QuotesHiddenOn(D(2026, 11, 14, 0, 1)), "✕ hides for today only");
         // 7. MY PICTURE / MY VIDEO files
         var dir = Path.Combine(Path.GetTempPath(), "ks-scenes-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(dir);

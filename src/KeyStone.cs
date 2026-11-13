@@ -11355,6 +11355,7 @@ namespace NinjaTrader.NinjaScript
             { "TB.CLEAN", new[] { "switches every indicator off and deletes your drawings (asks first).", "a fresh chart.", "use when the chart is cluttered." } },
             { "TB.MATCHES", new[] { "the closest past moments as paths on the chart.", "how similar moments ended.", "click one to see what came next." } },
             { "TB.TEMPLATE", new[] { "the chart's colours / template.", "a look that is easy on your eyes.", "point to preview, click to keep." } },
+            { "TB.LOOK", new[] { "🎨 LOOK: season accents, scenes / photos around or behind the chart, animation, the header line.", "a calmer, personal screen — display only.", "point = preview, click = choose, click again = off, ✓ KEEP." } },
             { "TB.ACCOUNT", new[] { "your accounts: the one on the chart, balances, status.", "you always know which account trades.", "click to switch (in a trade it asks first)." } },
             // 📊 ORDERFLOW header
             { "OFH.SIGNALS", new[] { "the ▲ ▼ setups and how often each worked.", "only proven setups deserve your money.", "act on ✅ cards; 🧪 = still learning." } },
@@ -25917,9 +25918,10 @@ namespace NinjaTrader.NinjaScript
             n = Math.Max(0, Math.Min(Max, n)); if (reduce) n = n / 2;
             return n;
         }
-        public void Reset(string kind, double w, double h, bool reduce, int seed)
+        public int Cap = Max;   // 13l: the plots behind the chart share the budget (KeystoneLookBehind.CapPerPlot)
+        public void Reset(string kind, double w, double h, bool reduce, int seed, int cap = Max)
         {
-            Kind = kind ?? ""; W = Math.Max(1, w); H = Math.Max(1, h); Reduce = reduce; rnd = new Random(seed); T = 0; N = CountFor(Kind, W, reduce);
+            Kind = kind ?? ""; W = Math.Max(1, w); H = Math.Max(1, h); Reduce = reduce; rnd = new Random(seed); T = 0; Cap = Math.Max(0, Math.Min(Max, cap)); N = Math.Min(Cap, CountFor(Kind, W, reduce));
             for (int i = 0; i < N; i++) Spawn(i, true);
         }
         void Spawn(int i, bool anywhere)
@@ -25976,20 +25978,35 @@ namespace NinjaTrader.NinjaScript
         public static readonly string[] SceneModes = { "MATCH", "NONE", "MOUNTAINS", "WATERFALL", "FOREST", "OCEAN", "AURORA", "SNOWPEAKS", "PICTURE", "VIDEO" };
         public static readonly string[] AnimModes = { "OFF", "MATCH", "SNOW", "RAIN", "LEAVES", "SUN", "STARS", "MIST" };
         public static readonly string[] QuoteModes = { "BOTH", "REMINDERS", "QUOTES", "OFF" };
-        public const double FaintOpacity = 0.05;   // "faint behind the chart": ≤ 6 %, never animated inside the plot
+        public static readonly string[] PlaceModes = { "AROUND", "BEHIND" };   // 13l: BEHIND THE CHART replaces 13k's FAINT (a saved FAINT reads as BEHIND at 5 %)
+        public const int BehindMin = 5, BehindMax = 40, BehindDefault = 18;     // 13l: the picture behind the candles, % opacity (the contrast guard adds a scrim on top)
+        public const double AnimBehindMax = 0.25;                              // 13l: the optional animation behind the candles is drawn at ≤ 25 %
         // DEFAULTS (13k): the season accent AUTO + the matching static scene in the header band (drawn once, bitmap-cached), NO animation, around the chart, quotes + reminders
         public string Season = "AUTO", Scene = "MATCH", Anim = "OFF", Place = "AROUND", Quotes = "BOTH", HideDay = "", File = "";
-        public bool Reduce, LowPower;
+        public bool Reduce, LowPower, AnimBehind; public int BehindPct = BehindDefault;
+        public static int ClampPct(int v) { return Math.Max(BehindMin, Math.Min(BehindMax, v)); }
+        // 13l: the gallery's chip groups — clicking the SELECTED chip of an optional group returns it to the group's default (ANIMATION → OFF, SCENE → MATCH,
+        // SEASON → AUTO, HEADER LINE → BOTH); PLACEMENT is a plain radio (it always has a value: clicking the selected one keeps it)
+        public static string Toggle(string group, string current, string clicked)
+        {
+            string def = group == "ANIM" ? "OFF" : group == "SCENE" ? "MATCH" : group == "SEASON" ? "AUTO" : group == "QUOTES" ? "BOTH" : "";
+            if (def == "" || current != clicked) return clicked;
+            return def;
+        }
         static string Pick(string v, string[] ok, string d) { v = (v ?? "").Trim().ToUpperInvariant(); return ok.Contains(v) ? v : d; }
         public static KeystoneLookSettings Read(Func<string, string> get)
         {
             Func<string, string> g = k => { try { return get(k) ?? ""; } catch { return ""; } };
-            return new KeystoneLookSettings
+            var s = new KeystoneLookSettings
             {
                 Season = Pick(g("season"), SeasonModes, "AUTO"), Scene = SceneOk(g("scene")), Anim = Pick(g("anim"), AnimModes, "OFF"),
-                Place = Pick(g("place"), new[] { "AROUND", "FAINT" }, "AROUND"), Quotes = Pick(g("quotes"), QuoteModes, "BOTH"), HideDay = g("hide").Trim(), File = g("file").Trim(),
-                Reduce = g("reduce") == "1", LowPower = g("lowpower") == "1"
+                Place = Pick(g("place"), new[] { "AROUND", "BEHIND", "FAINT" }, "AROUND"), Quotes = Pick(g("quotes"), QuoteModes, "BOTH"), HideDay = g("hide").Trim(), File = g("file").Trim(),
+                Reduce = g("reduce") == "1", LowPower = g("lowpower") == "1", AnimBehind = g("animbehind") == "1"
             };
+            int pc; bool hasPct = int.TryParse(g("behindpct").Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out pc);
+            if (s.Place == "FAINT") { s.Place = "BEHIND"; if (!hasPct) pc = BehindMin; hasPct = true; }   /* 13k's 5 % veil → BEHIND THE CHART at 5 % */
+            s.BehindPct = hasPct ? ClampPct(pc) : BehindDefault;
+            return s;
         }
         public static string SceneOk(string v)
         {
@@ -26000,7 +26017,7 @@ namespace NinjaTrader.NinjaScript
         public KeystoneLookPhoto Photo { get { return Scene.StartsWith("PHOTO:") ? KeystoneLookCatalog.Find(Scene.Substring(6)) : null; } }
         public Dictionary<string, string> Write()
         {
-            return new Dictionary<string, string> { { "season", Season }, { "scene", Scene }, { "anim", Anim }, { "place", Place }, { "quotes", Quotes }, { "hide", HideDay ?? "" }, { "file", File ?? "" }, { "reduce", Reduce ? "1" : "0" }, { "lowpower", LowPower ? "1" : "0" } };
+            return new Dictionary<string, string> { { "season", Season }, { "scene", Scene }, { "anim", Anim }, { "place", Place }, { "quotes", Quotes }, { "hide", HideDay ?? "" }, { "file", File ?? "" }, { "reduce", Reduce ? "1" : "0" }, { "lowpower", LowPower ? "1" : "0" }, { "behindpct", ClampPct(BehindPct).ToString(CultureInfo.InvariantCulture) }, { "animbehind", AnimBehind ? "1" : "0" } };
         }
         public string SeasonNow(DateTime ny) { return Season == "OFF" ? "" : Season == "AUTO" ? KeystoneSeasons.Of(ny) : Season; }
         public string SceneNow(DateTime ny)
@@ -26014,6 +26031,68 @@ namespace NinjaTrader.NinjaScript
             return Anim;
         }
         public bool QuotesHiddenOn(DateTime ny) { return HideDay == ny.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); }
+    }
+    // 🖼 13l BEHIND THE CHART: the picture / drawn scene fills each plot's background under the candles at the chosen opacity; the CONTRAST GUARD puts a scrim in the
+    // template's own background colour on top of it so the plot's effective luminance stays within Tol of the template's (the candles / labels are drawn above, untouched)
+    public static class KeystoneLookBehind
+    {
+        public const double Tol = 0.08;   // the plot's mean luminance may move at most this much (0..1) from the template's background
+        // luma (0..1) of a #RRGGBB / #AARRGGBB colour
+        public static double Lum(string hex) { var x = KeystoneSeasons.Argb(hex); return (0.2126 * x[1] + 0.7152 * x[2] + 0.0722 * x[3]) / 255.0; }
+        public static double Lum(byte r, byte g, byte b) { return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0; }
+        // the scrim's opacity (0..1) so that bg + p (1 − s)(img − bg) stays within Tol of bg
+        public static double Scrim(double bgLum, double imgLum, double opacity)
+        {
+            double p = Math.Max(0, Math.Min(1, opacity)), dev = p * Math.Abs(imgLum - bgLum);
+            if (dev <= Tol || dev <= 1e-9) return 0;
+            return Math.Max(0, Math.Min(1, 1 - Tol / dev));
+        }
+        public static double Effective(double bgLum, double imgLum, double opacity, double scrim) { return bgLum + Math.Max(0, Math.Min(1, opacity)) * (1 - Math.Max(0, Math.Min(1, scrim))) * (imgLum - bgLum); }
+        // a drawn scene's mean luminance (no pixels to read): its sky + deep colours, the ground weighs more
+        public static double SceneLum(KeystoneSeasonPalette p) { if (p == null) return 0.2; return 0.3 * Lum(p.Sky1) + 0.3 * Lum(p.Sky2) + 0.4 * Lum(p.Deep); }
+        // the particle budget behind the chart: the same 150 shared by every visible plot
+        public static int CapPerPlot(int plots) { return Math.Max(0, KeystoneParticles.Max / Math.Max(1, plots)); }
+    }
+    // 📰 13l: the chart's HIGH-IMPACT news banner — ✕ hides THIS event (remembered per window); a NEW event shows again; a hidden one comes back only as a small pill
+    // in its last 5 minutes (−5 … +5 around the release), without a ✕ (it lasts ≤ 10 minutes)
+    public static class KeystoneNewsBanner
+    {
+        public static string Key(string title, DateTime time) { return (title ?? "").Trim() + "|" + time.ToString("yyyyMMddHHmm", CultureInfo.InvariantCulture); }
+        public static string Mode(string key, string hiddenKey, double minutesLeft)
+        {
+            if (string.IsNullOrEmpty(key)) return "NONE";
+            if (!string.IsNullOrEmpty(hiddenKey) && key == hiddenKey) return minutesLeft <= 5 && minutesLeft >= -5 ? "PILL" : "NONE";
+            return "FULL";
+        }
+    }
+    // 🪟 13l: the ● LIVE TRADING header's right-hand group — the news chip gets what is left (140 … 300 px); the items flow like a WrapPanel and are never clipped
+    public static class KeystoneHeadFit
+    {
+        public static double NewsWidth(double headW, double titleW, double othersW) { if (headW <= 0) return 300; return Math.Max(140, Math.Min(300, headW - titleW - othersW - 8)); }
+        // a WrapPanel's flow inside [0, avail]: each item's (row, right edge); an item is clipped only when it alone is wider than avail
+        public static List<Tuple<int, double>> Flow(double avail, IList<double> widths)
+        {
+            var o = new List<Tuple<int, double>>(); int row = 0; double x = 0;
+            foreach (var w0 in widths) { if (x > 0 && x + w0 > avail) { row++; x = 0; } x += w0; o.Add(Tuple.Create(row, x)); }
+            return o;
+        }
+        public static bool Clipped(double avail, IList<double> widths) { return Flow(avail, widths).Any(t => t.Item2 > avail + 0.5); }
+    }
+    // 🪟 13l: WCAG contrast of two colours (the caption buttons on the title band must stay ≥ 4.5 : 1 whatever the scene / photo)
+    public static class KeystoneContrast
+    {
+        static double Lin(double c) { c /= 255.0; return c <= 0.03928 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4); }
+        public static double RelLum(int r, int g, int b) { return 0.2126 * Lin(r) + 0.7152 * Lin(g) + 0.0722 * Lin(b); }
+        public static double Ratio(double l1, double l2) { double a = Math.Max(l1, l2), b = Math.Min(l1, l2); return (a + 0.05) / (b + 0.05); }
+        // a translucent #AARRGGBB over an opaque background → the colour seen
+        public static int[] Over(string fgHex, int br, int bg, int bb) { var x = KeystoneSeasons.Argb(fgHex); double a = x[0] / 255.0; return new[] { (int)Math.Round(x[1] * a + br * (1 - a)), (int)Math.Round(x[2] * a + bg * (1 - a)), (int)Math.Round(x[3] * a + bb * (1 - a)) }; }
+        // the worst case of a glyph colour on a pill over ANY backdrop (black … white)
+        public static double WorstOnPill(string glyphHex, string pillHex)
+        {
+            var g = KeystoneSeasons.Argb(glyphHex); double lg = RelLum(g[1], g[2], g[3]), worst = double.MaxValue;
+            foreach (var bk in new[] { 0, 64, 128, 192, 255 }) { var c = Over(pillHex, bk, bk, bk); worst = Math.Min(worst, Ratio(lg, RelLum(c[0], c[1], c[2]))); }
+            return worst;
+        }
     }
     // 💬 the header line: one line only — an urgent reminder first, else the season quote (every 3 h) alternating with a gentle reminder
     public sealed class KeystoneLookInputs
@@ -26447,7 +26526,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly string KeystoneBuildShort = KeystoneBuild.Split('•')[0].Trim();   // always the newest label (it was a separate, forgotten constant)
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
         private static string flatAlertedKey = "";   // the firm close-time alarm sounds once a day per account
-        private const string KeystoneBuild = "BUILD 2026-11-13k • 🍂 SEASONS + 🖼 SCENES (optional): seasonal accents, quotes & reminders, procedural landscapes, snow / rain / leaves / sun around the chart — light, never over the candles • 📷 real-photo templates + the one-click 🎨 LOOK gallery (✓ KEEP / ↺ BACK) • BUILD 2026-11-13j • 🖐 drag fixed: moving an existing stop / take profit never hides the window — a click opened a self-closing topmost price window • 🧼 SIMPLE really hides every order-flow layer (event pills, big prints, trapped boxes, marks) whatever the chips, the ⚙ list greys them, no more □ • BUILD 2026-11-13i • 🫥 the position label + ⚠ NO STOP SET show only on hover, on the right next to + SL / + TP • BUILD 2026-11-13h • ✋ always something to grab: + SL / + TP pills next to the position, off-screen stop / target pinned at the edge, a closing order says \"closes your SHORT 1 (+$…)\", entry-order pills next to their order • BUILD 2026-11-13g • ⏳ stop orders get the same draggable SL / TP as limits • ✕ on every bracket leg to cancel it (the stop asks first) • no more doubled pills • a new limit / stop order starts WITHOUT a stop / target (only the SL / TP you set for it, then the fields clear) • BUILD 2026-11-13f • 🧹 the order column fits again: ▸ NEXT LEVELS starts folded (one click opens it), the quick contract buttons 1 2 3 5 10 show their numbers • BUILD 2026-11-13e • ✋ line dragging: what you hover is what you grab (label first, else the nearest line), the dragged line keeps its identity, PROFIT STOP vs TAKE PROFIT labelled apart • BUILD 2026-11-13d • 🗺 NEXT LEVELS: the nearest FVGs (all timeframes, yesterday's too), swings, prior-day / overnight / today H-L, VWAP, POC / VA, zones — with how often each is reached first from your history; in a trade told from your side • ➕ add-to-winner / add-to-loser suggestions with contracts, average, break-even and the floor check (text only) • ● BIG PRINTS: a pale circle per closed-minute print that stays (faded by age, behind the candles, NEW on the latest, click = what happened + IF / THEN), its own chip • 👁 the overlay chips moved off the chart into the header (⚙ OVERLAYS ▾ when narrow) • the in-trade box follows adds: the current size + average • BUILD 2026-11-13c • ❓ every chip, tab and button explains itself on hover (what • why • how to use) • 🎓 ORDERFLOW: HOW TO USE + 👉 what to do now on every event • ⛔ warns when your stop is beyond the account's floor • 📊 honest events: every event shows its measured % (grey \"no edge\" / learning under 30, never \"SELL pressure\" without an edge), measured with vs against the session trend, counter-trend events in a strong trend flagged • BUILD 2026-11-13b • 🩹 live chart gaps: missing minutes refilled from the live feed's own NinjaTrader bars, gaps found up to the last bar (no time-zone miss), asked again every minute • BUILD 2026-11-13a • ⚡ speed: the order-flow engine runs only when something needs it (ORDERFLOW tab open / a chart layer on), off the UI thread, incremental; ⚡ ORDER FLOW ENGINE AUTO / OFF • 🎯 REVERSAL SCORE layer (optional): reversal arrows ≥ 75 % confluence, coloured by strength, click = the confluence checklist • 📊 ORDER FLOW is OFF by default (one ☐ / ☑ switch per window: the tab + the engine; the chart's 📊 OF chip for the reversal arrows + ⭐ OF CONFIRM) • BUILD 2026-11-12z • ⭐ your candle setups + order flow: an OF ✔ / ✖ badge on the FVG / engulfing / aggression setups (absorbed / pushing at the zone), IF / THEN lines for every event level (back and holds / breaks), FVG alone vs FVG + OF stats • BUILD 2026-11-12y • 📈 the CHART = your candlesticks only (no order flow drawn by default — decision line, toasts, setup lines, zones, events, battle map all OFF there; the order-flow engine runs only for the 📊 ORDERFLOW tab or a chip you switch on) • 🧼 SIMPLE ORDERFLOW view by default (candles + one decision line + the setup's lines + ≤ 2 zone outlines; everything else in the dock: NOW / STORY / FLOW / PROFILE / EVENTS), 🔬 DETAILED restores your overlays • no more \"stop 0.00\" • 📚 DOM for beginners (a ladder around the price, walls / pulled / 🧊 refills, who is waiting, ❓ what is the DOM) • 🎯 event words never on the candles (a tiny ring at the print, the words in the right column), every event \"for your LONG 2 @ …\" (supports HOLD / against you → TIGHTEN), opposite events = ONE ⚖ chop line, the in-trade box with the stop / target in pts and $ • 🛠 the replay's ⤓ GET TICKS banner is clickable again (one click = this day's real ticks downloaded, saved to the TICK LIBRARY and replayed; a plain message when NinjaTrader has none) + 📥 TICK LIBRARY ⤓ DOWNLOAD EVERYTHING AVAILABLE (MNQ + MGC, today back until 3 empty days, saved days skipped, ■ CANCEL) • BUILD 2026-11-12x • 🏃 SWING setups beside ⚡ SCALP: zone retests / 5-min confirmations, stop beyond the structure, take profit at the next major level ≥ 2 R (named), sized from the wider stop, proven separately per style • ⚡ longer scalps: TP 10–20 pts MNQ / 2–4 MGC, no room = no scalp, pts + $ on every card • ⚖ STYLE SCALP / SWING / BOTH (two rows, one TAKE each) • 🧭 5-STEP GUIDE in the decision bar (① LOCATION ② BATTLE ③ FAILURE ④ CLOSE ⑤ EXECUTE), one mark language (shape = what, colour = for whom, bright = the current step; the CHART shows ≤ 3), the SETUP chip opens WHY when there is no setup • 🛡 a stable in-trade suggestion: the plan decides (GET OUT only on a closed-candle break of its level or 90 s of flow + delta + event against), DRAWDOWN IS NORMAL inside the plan, 45 / 90 / 30 s hysteresis, a swing doubles it • 🚥 DECISION BAR on the chart = the NOW verdict (⚡ cyan / 🏃 violet / ⭐ STRONG gold / 🧪 grey / ⚠ orange / ⛔ red, gentle pulse) • 🔔 event toasts with \"→ what it means for you\" + the measured % (n ≥ 20) + the event journal • 🪤 failed zone → FLIP setup, failed big prints louder • 👀 WHAT'S HAPPENING NOW + 🎓 BEGINNER words • 💵 SETUPS table with $ P/L + totals • 📊 TOTALS — contracts • ⚔ battle map labelled • 🧭 \"SELLERS fading → BUYERS +48\" + in-trade fixes (a held compass = changing, no GET OUT in the first minute, PROTECT THE PROFIT) • BUILD 2026-11-12w • 🧹 calmer marks: the same signal within 5 candles = ONE small icon ×n (last 30 min, max 5, never stacked), watch zones = the 2 nearest per side, merged, a short ▲ BUY ZONE / ▼ SELL ZONE label at the right edge + a plain click explanation, big prints = the 8 biggest of 15 min • BUILD 2026-11-12v • 📊 ORDERFLOW calm: volume profile + delta / contracts row on the chart, one stable FLOW COMPASS (hysteresis), only confirmed signals with R:R ≥ 1 in the compass direction, TEAL / CORAL palette, live flow + tape in the dock • dock tabs 🧭 NOW (one verdict + the setup) / 🔍 WHY / 📖 STORY / 📒 SETUPS / 📊 ANALYZE / 🧠 LEARN / ⚡ FLOW / 📚 BOOK / 📈 STATS / 🎓 GUIDE • 🧘 PATIENT (proven setups only, cool-down) + ⚡ SCALP first + 📜 history replay • 👀 ZONE RETEST (mark → wait → confirm) • 🪤 trapped / ⚡ big prints / 🧱 events • one setup at a time (#id, fixed levels, planned $, first-touch ✔ / ✖) • 🏦 account fit + best account • 🎯 in-trade confidence + battle map • 👁 layer bar (H = clean) • 📦 EXPORT FOR CLAUDE • BUILD 2026-11-12u • 🛡 the signal card TAKE sends EXACTLY its contracts (frozen when the card appears, named on the button + the question, min stop MNQ 5 / MGC 1.5 pts, cap 10) • 💡 SIGNAL stop / target violet on the chart vs MY TP / MY SL • the details box on top • BUILD 2026-11-12t • 🧾 EXECUTIONS rebuilt: per-account selector, every fill / partial / add, iterations flat-to-flat with legs + the account snapshot (balance, floor, peak, buffer), fees from NinjaTrader's executions only • BUILD 2026-11-11s • 📥 TICK LIBRARY (download / keep / load real ticks), order-flow source badges (never from candles), the all-in-one ORDERFLOW desk, menu fix, ▦ grid lines on / off, 💡 3 SETUPS + OVERNIGHT preset • BUILD 2026-11-11r • 💡 BOLD / SMALL 1-A-DAY presets (one trade per account per day, ~1:1 wide bracket), Lucid payout locks the floor, payout hold, bracket re-priced for every trade • BUILD 2026-11-11q • funded trailing peak = the firm's liquidation value (closing commission), ✎ SYNC with Tradovate, EXECUTIONS fees from NinjaTrader • BUILD 2026-11-11p • 🎯 3 SETUPS: indicator layer, studio 3-SETUP ROTATION drawer, practice tickets, ROTATE guided source • BUILD 2026-11-11o • 🎯 3-SETUP ROTATION engine + study (FVG 50 % / aggression break / 123 engulfing, 30-account rotation, Lucid Flex 50K) • BUILD 2026-11-11n • LIVE TRADING: the account boxes fixed in their own row above the chart (bigger, never move / hide, kept in FULL CHART) + the account in words (firm • FUNDED / EVALUATION • trailing drawdown) + the bottom tab bar shrinks to fit • BUILD 2026-11-11m • entry marker: a small tick beside the candle (no big arrow / glow over the entry candle) • BUILD 2026-11-11l • 🧮 header TILES (balance, open, peak + time, floor $ + price + ▲ flash, room + drain bar, to lock / target + progress, the position) — each number once · 🆓 MANUAL practice (no rules) · 📊 ATTEMPTS tracker (summary, every attempt, its trades, ▶ jump, export, clear) · 🏷 gutter labels include the position / TP / SL (PEAK near the entry rides on it) · 🧠 ENTRY ANALYZER + 🧠 ENTRY SCORE (walk-forward, calibrated, says when there is no edge) • BUILD 2026-11-11k • 🔄 ROTATION SIM in the Backtest Studio (non-stop TP / SL brackets to the TPT lock or the blow: B / S patterns or rules, real ticks or the minute path with the reliability flag, ONE account + replay with FLOOR / PEAK / LOCK, 👥 POOL, 📊 ANALYZER + the no-edge maths, 🏆 FIND OPTIMAL checked on both halves, 💾 runs saved / reopened / compared) · 🖥 the chart first (drawers overlay it, one practice strip, the trailing numbers in the order column, FLOOR / LOCK / PEAK only, gutter labels never overlap) · 🔁 AUTO NEW ATTEMPT after a pass / lock / blow (on) · 📚 trailing-drawdown presets from the firm book + ＋ SAVE AS PRESET · 📼 LIVE DEMO history (saved + NinjaTrader, 5 / 30 / 90 / 365 days) • BUILD 2026-11-11j • ● LIVE DEMO in the Backtest Studio (real-time data, simulated fills, full prop practice) · several studios open at once · 🎯 PROP PRACTICE button in LIVE TRADING · 📐 the trailing-drawdown view (solid FLOOR / dotted PEAK / LOCK lines, the red room band, ▲ floor moved, the big panel: room $ + pts, peak, given back, to lock, balance) · 🎯 LOCK RACE preset (MNQ 5 … 60, 10 by default @ 9:30 with the 60-min trend; TP $2,000 / $1,000, SL floor / $1,000 / $500 / $250, BE at 75 %, the next trade aims for what is missing) • BUILD 2026-11-11i • 🔒 NinjaTrader Lockout recognised (entries refused, autopilot blocked) · 🎯 REVERSAL FVG scanner (signals only, ★ high volume, forward log) · 🎮 Sim101 listed · 🎯 live Sim101 prop practice · JJ removed • BUILD 2026-11-11h • TP / SL drag: the entry fades and can't be grabbed while dragging, a live points / $ label on the line, the order changes only on release • BUILD 2026-11-11g • 🤖 LIVE AUTOPILOT: GUIDED (flashing bracket, one press) for every firm, AUTO for Lucid / Tradeify only after ARM + typed START, through the armed links + limits • BUILD 2026-11-11f • defaults: ALL AT ONCE 2:00 + SPRINT 0 · 👥 owners (me / wife, 5 per firm each) · time presets · JJ strategy (practice) • BUILD 2026-11-11e • ● LIVE: only your active accounts (TPT eval / funded detected right, real balances, nicknames), groups + plan per group, CONFIRM no longer freezes • ▢ every window opens maximized (restore = 90 % of the screen), larger readable question dialogs • BUILD 2026-11-11d • 🔁 continuous runs until END by default (new eval → funded → payouts over and over), month by month, sprint badges • BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
+        private const string KeystoneBuild = "BUILD 2026-11-13l • 🎨 LOOK fixes: chips toggle on / off in place (no jump to the top), photos / scenes BEHIND THE CHART with an opacity slider (+ optional faint animation behind the candles), 🎨 LOOK button in the toolbar • 📰 the news banner gets an ✕ (top-left, off the candles) • ↻ RECONNECT never cut off • readable — ▢ ✕ window buttons on any photo • BUILD 2026-11-13k • 🍂 SEASONS + 🖼 SCENES (optional): seasonal accents, quotes & reminders, procedural landscapes, snow / rain / leaves / sun around the chart — light, never over the candles • 📷 real-photo templates + the one-click 🎨 LOOK gallery (✓ KEEP / ↺ BACK) • BUILD 2026-11-13j • 🖐 drag fixed: moving an existing stop / take profit never hides the window — a click opened a self-closing topmost price window • 🧼 SIMPLE really hides every order-flow layer (event pills, big prints, trapped boxes, marks) whatever the chips, the ⚙ list greys them, no more □ • BUILD 2026-11-13i • 🫥 the position label + ⚠ NO STOP SET show only on hover, on the right next to + SL / + TP • BUILD 2026-11-13h • ✋ always something to grab: + SL / + TP pills next to the position, off-screen stop / target pinned at the edge, a closing order says \"closes your SHORT 1 (+$…)\", entry-order pills next to their order • BUILD 2026-11-13g • ⏳ stop orders get the same draggable SL / TP as limits • ✕ on every bracket leg to cancel it (the stop asks first) • no more doubled pills • a new limit / stop order starts WITHOUT a stop / target (only the SL / TP you set for it, then the fields clear) • BUILD 2026-11-13f • 🧹 the order column fits again: ▸ NEXT LEVELS starts folded (one click opens it), the quick contract buttons 1 2 3 5 10 show their numbers • BUILD 2026-11-13e • ✋ line dragging: what you hover is what you grab (label first, else the nearest line), the dragged line keeps its identity, PROFIT STOP vs TAKE PROFIT labelled apart • BUILD 2026-11-13d • 🗺 NEXT LEVELS: the nearest FVGs (all timeframes, yesterday's too), swings, prior-day / overnight / today H-L, VWAP, POC / VA, zones — with how often each is reached first from your history; in a trade told from your side • ➕ add-to-winner / add-to-loser suggestions with contracts, average, break-even and the floor check (text only) • ● BIG PRINTS: a pale circle per closed-minute print that stays (faded by age, behind the candles, NEW on the latest, click = what happened + IF / THEN), its own chip • 👁 the overlay chips moved off the chart into the header (⚙ OVERLAYS ▾ when narrow) • the in-trade box follows adds: the current size + average • BUILD 2026-11-13c • ❓ every chip, tab and button explains itself on hover (what • why • how to use) • 🎓 ORDERFLOW: HOW TO USE + 👉 what to do now on every event • ⛔ warns when your stop is beyond the account's floor • 📊 honest events: every event shows its measured % (grey \"no edge\" / learning under 30, never \"SELL pressure\" without an edge), measured with vs against the session trend, counter-trend events in a strong trend flagged • BUILD 2026-11-13b • 🩹 live chart gaps: missing minutes refilled from the live feed's own NinjaTrader bars, gaps found up to the last bar (no time-zone miss), asked again every minute • BUILD 2026-11-13a • ⚡ speed: the order-flow engine runs only when something needs it (ORDERFLOW tab open / a chart layer on), off the UI thread, incremental; ⚡ ORDER FLOW ENGINE AUTO / OFF • 🎯 REVERSAL SCORE layer (optional): reversal arrows ≥ 75 % confluence, coloured by strength, click = the confluence checklist • 📊 ORDER FLOW is OFF by default (one ☐ / ☑ switch per window: the tab + the engine; the chart's 📊 OF chip for the reversal arrows + ⭐ OF CONFIRM) • BUILD 2026-11-12z • ⭐ your candle setups + order flow: an OF ✔ / ✖ badge on the FVG / engulfing / aggression setups (absorbed / pushing at the zone), IF / THEN lines for every event level (back and holds / breaks), FVG alone vs FVG + OF stats • BUILD 2026-11-12y • 📈 the CHART = your candlesticks only (no order flow drawn by default — decision line, toasts, setup lines, zones, events, battle map all OFF there; the order-flow engine runs only for the 📊 ORDERFLOW tab or a chip you switch on) • 🧼 SIMPLE ORDERFLOW view by default (candles + one decision line + the setup's lines + ≤ 2 zone outlines; everything else in the dock: NOW / STORY / FLOW / PROFILE / EVENTS), 🔬 DETAILED restores your overlays • no more \"stop 0.00\" • 📚 DOM for beginners (a ladder around the price, walls / pulled / 🧊 refills, who is waiting, ❓ what is the DOM) • 🎯 event words never on the candles (a tiny ring at the print, the words in the right column), every event \"for your LONG 2 @ …\" (supports HOLD / against you → TIGHTEN), opposite events = ONE ⚖ chop line, the in-trade box with the stop / target in pts and $ • 🛠 the replay's ⤓ GET TICKS banner is clickable again (one click = this day's real ticks downloaded, saved to the TICK LIBRARY and replayed; a plain message when NinjaTrader has none) + 📥 TICK LIBRARY ⤓ DOWNLOAD EVERYTHING AVAILABLE (MNQ + MGC, today back until 3 empty days, saved days skipped, ■ CANCEL) • BUILD 2026-11-12x • 🏃 SWING setups beside ⚡ SCALP: zone retests / 5-min confirmations, stop beyond the structure, take profit at the next major level ≥ 2 R (named), sized from the wider stop, proven separately per style • ⚡ longer scalps: TP 10–20 pts MNQ / 2–4 MGC, no room = no scalp, pts + $ on every card • ⚖ STYLE SCALP / SWING / BOTH (two rows, one TAKE each) • 🧭 5-STEP GUIDE in the decision bar (① LOCATION ② BATTLE ③ FAILURE ④ CLOSE ⑤ EXECUTE), one mark language (shape = what, colour = for whom, bright = the current step; the CHART shows ≤ 3), the SETUP chip opens WHY when there is no setup • 🛡 a stable in-trade suggestion: the plan decides (GET OUT only on a closed-candle break of its level or 90 s of flow + delta + event against), DRAWDOWN IS NORMAL inside the plan, 45 / 90 / 30 s hysteresis, a swing doubles it • 🚥 DECISION BAR on the chart = the NOW verdict (⚡ cyan / 🏃 violet / ⭐ STRONG gold / 🧪 grey / ⚠ orange / ⛔ red, gentle pulse) • 🔔 event toasts with \"→ what it means for you\" + the measured % (n ≥ 20) + the event journal • 🪤 failed zone → FLIP setup, failed big prints louder • 👀 WHAT'S HAPPENING NOW + 🎓 BEGINNER words • 💵 SETUPS table with $ P/L + totals • 📊 TOTALS — contracts • ⚔ battle map labelled • 🧭 \"SELLERS fading → BUYERS +48\" + in-trade fixes (a held compass = changing, no GET OUT in the first minute, PROTECT THE PROFIT) • BUILD 2026-11-12w • 🧹 calmer marks: the same signal within 5 candles = ONE small icon ×n (last 30 min, max 5, never stacked), watch zones = the 2 nearest per side, merged, a short ▲ BUY ZONE / ▼ SELL ZONE label at the right edge + a plain click explanation, big prints = the 8 biggest of 15 min • BUILD 2026-11-12v • 📊 ORDERFLOW calm: volume profile + delta / contracts row on the chart, one stable FLOW COMPASS (hysteresis), only confirmed signals with R:R ≥ 1 in the compass direction, TEAL / CORAL palette, live flow + tape in the dock • dock tabs 🧭 NOW (one verdict + the setup) / 🔍 WHY / 📖 STORY / 📒 SETUPS / 📊 ANALYZE / 🧠 LEARN / ⚡ FLOW / 📚 BOOK / 📈 STATS / 🎓 GUIDE • 🧘 PATIENT (proven setups only, cool-down) + ⚡ SCALP first + 📜 history replay • 👀 ZONE RETEST (mark → wait → confirm) • 🪤 trapped / ⚡ big prints / 🧱 events • one setup at a time (#id, fixed levels, planned $, first-touch ✔ / ✖) • 🏦 account fit + best account • 🎯 in-trade confidence + battle map • 👁 layer bar (H = clean) • 📦 EXPORT FOR CLAUDE • BUILD 2026-11-12u • 🛡 the signal card TAKE sends EXACTLY its contracts (frozen when the card appears, named on the button + the question, min stop MNQ 5 / MGC 1.5 pts, cap 10) • 💡 SIGNAL stop / target violet on the chart vs MY TP / MY SL • the details box on top • BUILD 2026-11-12t • 🧾 EXECUTIONS rebuilt: per-account selector, every fill / partial / add, iterations flat-to-flat with legs + the account snapshot (balance, floor, peak, buffer), fees from NinjaTrader's executions only • BUILD 2026-11-11s • 📥 TICK LIBRARY (download / keep / load real ticks), order-flow source badges (never from candles), the all-in-one ORDERFLOW desk, menu fix, ▦ grid lines on / off, 💡 3 SETUPS + OVERNIGHT preset • BUILD 2026-11-11r • 💡 BOLD / SMALL 1-A-DAY presets (one trade per account per day, ~1:1 wide bracket), Lucid payout locks the floor, payout hold, bracket re-priced for every trade • BUILD 2026-11-11q • funded trailing peak = the firm's liquidation value (closing commission), ✎ SYNC with Tradovate, EXECUTIONS fees from NinjaTrader • BUILD 2026-11-11p • 🎯 3 SETUPS: indicator layer, studio 3-SETUP ROTATION drawer, practice tickets, ROTATE guided source • BUILD 2026-11-11o • 🎯 3-SETUP ROTATION engine + study (FVG 50 % / aggression break / 123 engulfing, 30-account rotation, Lucid Flex 50K) • BUILD 2026-11-11n • LIVE TRADING: the account boxes fixed in their own row above the chart (bigger, never move / hide, kept in FULL CHART) + the account in words (firm • FUNDED / EVALUATION • trailing drawdown) + the bottom tab bar shrinks to fit • BUILD 2026-11-11m • entry marker: a small tick beside the candle (no big arrow / glow over the entry candle) • BUILD 2026-11-11l • 🧮 header TILES (balance, open, peak + time, floor $ + price + ▲ flash, room + drain bar, to lock / target + progress, the position) — each number once · 🆓 MANUAL practice (no rules) · 📊 ATTEMPTS tracker (summary, every attempt, its trades, ▶ jump, export, clear) · 🏷 gutter labels include the position / TP / SL (PEAK near the entry rides on it) · 🧠 ENTRY ANALYZER + 🧠 ENTRY SCORE (walk-forward, calibrated, says when there is no edge) • BUILD 2026-11-11k • 🔄 ROTATION SIM in the Backtest Studio (non-stop TP / SL brackets to the TPT lock or the blow: B / S patterns or rules, real ticks or the minute path with the reliability flag, ONE account + replay with FLOOR / PEAK / LOCK, 👥 POOL, 📊 ANALYZER + the no-edge maths, 🏆 FIND OPTIMAL checked on both halves, 💾 runs saved / reopened / compared) · 🖥 the chart first (drawers overlay it, one practice strip, the trailing numbers in the order column, FLOOR / LOCK / PEAK only, gutter labels never overlap) · 🔁 AUTO NEW ATTEMPT after a pass / lock / blow (on) · 📚 trailing-drawdown presets from the firm book + ＋ SAVE AS PRESET · 📼 LIVE DEMO history (saved + NinjaTrader, 5 / 30 / 90 / 365 days) • BUILD 2026-11-11j • ● LIVE DEMO in the Backtest Studio (real-time data, simulated fills, full prop practice) · several studios open at once · 🎯 PROP PRACTICE button in LIVE TRADING · 📐 the trailing-drawdown view (solid FLOOR / dotted PEAK / LOCK lines, the red room band, ▲ floor moved, the big panel: room $ + pts, peak, given back, to lock, balance) · 🎯 LOCK RACE preset (MNQ 5 … 60, 10 by default @ 9:30 with the 60-min trend; TP $2,000 / $1,000, SL floor / $1,000 / $500 / $250, BE at 75 %, the next trade aims for what is missing) • BUILD 2026-11-11i • 🔒 NinjaTrader Lockout recognised (entries refused, autopilot blocked) · 🎯 REVERSAL FVG scanner (signals only, ★ high volume, forward log) · 🎮 Sim101 listed · 🎯 live Sim101 prop practice · JJ removed • BUILD 2026-11-11h • TP / SL drag: the entry fades and can't be grabbed while dragging, a live points / $ label on the line, the order changes only on release • BUILD 2026-11-11g • 🤖 LIVE AUTOPILOT: GUIDED (flashing bracket, one press) for every firm, AUTO for Lucid / Tradeify only after ARM + typed START, through the armed links + limits • BUILD 2026-11-11f • defaults: ALL AT ONCE 2:00 + SPRINT 0 · 👥 owners (me / wife, 5 per firm each) · time presets · JJ strategy (practice) • BUILD 2026-11-11e • ● LIVE: only your active accounts (TPT eval / funded detected right, real balances, nicknames), groups + plan per group, CONFIRM no longer freezes • ▢ every window opens maximized (restore = 90 % of the screen), larger readable question dialogs • BUILD 2026-11-11d • 🔁 continuous runs until END by default (new eval → funded → payouts over and over), month by month, sprint badges • BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -40844,6 +40923,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private string studioTiles, studioAttemptsText, studioAttemptsExport; private Action studioAttempts;   /* 📊 11l: the attempts view's text / its export / repaint (the smoke test) */   /* 🧮 11l: the header tiles as text (the smoke test) */
         private string studioPracPanel; private Func<string> studioRaceGo; private Func<bool> studioDrawerOverlay; private Func<string> studioPracState;   /* 🖥 11k: the drawers overlay the chart · the practice state (attempt / tallies / preset / position) */   /* 📐 11j: the big practice panel's tiles as text (the smoke test) */
         private Func<string, List<KeystoneOfTick>> studioOfTicksFake;   /* ⚡ 13a tests only (the perf harness / smoke test): a stand-in for NinjaTrader's tick history + a live tap the test feeds */
+        private Func<string, string> studioNews;   /* 📰 13l tests only: the chart's news banner + its ✕ */
         private Func<string, string> studioLook;   /* 🍂 13k tests only: the window's LOOK (season / scene / photo / animation / quote) */
         private Func<string, List<KeystoneOfTick>, bool> studioOfPush; private Action studioOfExitForTest; private Func<string, string> studioOfEngine;   /* ⚡ 13a tests only: push live trades into a chart's tap • the engine state / switches (STATE, MASTER 0|1, CHIP 0|1, KILL 0|1) */
         private Func<string, List<KeystoneArcBar>> studioLiveFeedFake;   /* tests only: a stand-in for NinjaTrader's real-time feed (the session so far per symbol) */
@@ -40897,7 +40977,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             private bool wrapping; private TextBlock titleText; private DockPanel frame;
             /* 🍂 13k LOOK hooks (display only): the header band behind the title bar (scene / photo / video / particles, never hit-testable), the window's back layer
                (shows around the content — the margins / gaps — never over a chart), the bar, its glow line, the one-line quote slot, the title */
-            public Grid LookBand, LookBack; public DockPanel BarPanel; public Border AccentLine, QuoteHost; public TextBlock TitleBlock; public Brush BarDefault, LineDefault;
+            public Grid LookBand, LookBack; public DockPanel BarPanel; public Border AccentLine, QuoteHost; public TextBlock TitleBlock; public Brush BarDefault, LineDefault; public Border CapsPill; public readonly List<Border> CapButtons = new List<Border>();   /* 🪟 13l */
             public bool KeepSize;   // a window placed beside a chart: opens at its own size, never maximized by itself
             private static ImageSource icon;
             /* 🪟 BUILD 2026-11-11j — OPEN WINDOWS (like SpasiX MT5's title-bar tabs): every main window's title bar has ⧉ WINDOWS ▾ — the windows open now (click = to
@@ -40990,17 +41070,21 @@ namespace NinjaTrader.NinjaScript.AddOns
                         wb.MouseLeftButtonUp += delegate { ShowWindowsMenu(this, wb); }; left.Children.Add(wb);
                     }
                     DockPanel.SetDock(left, Dock.Left); bar.Children.Add(left);
-                    var btns = new StackPanel { Orientation = Orientation.Horizontal }; DockPanel.SetDock(btns, Dock.Right); bar.Children.Add(btns);
+                    /* 🪟 13l: the caption buttons sit on their OWN solid dark glass pill (≥ 4.5 : 1 for the glyphs over any scene / photo / season — KeystoneContrast.WorstOnPill),
+                       a lighter hover, ✕ red on hover — the look's band never washes them out */
+                    var btns = new StackPanel { Orientation = Orientation.Horizontal };
+                    CapsPill = new Border { Background = new SolidColorBrush(Color.FromArgb(0xF0, 0x10, 0x16, 0x24)), CornerRadius = new CornerRadius(0, 0, 0, 9), BorderBrush = new SolidColorBrush(Color.FromArgb(0x55, 0x96, 0xA5, 0xC3)), BorderThickness = new Thickness(1, 0, 0, 1), Child = btns, Tag = "win.caps" };
+                    DockPanel.SetDock(CapsPill, Dock.Right); bar.Children.Add(CapsPill);
                     Func<string, Color, Action, Border> cap = (glyph, hover, act) =>
                     {
-                        var b = new Border { Width = 46, Height = 34, Background = System.Windows.Media.Brushes.Transparent, Cursor = System.Windows.Input.Cursors.Hand, Child = new TextBlock { Text = glyph, Foreground = new SolidColorBrush(Color.FromRgb(200, 210, 230)), FontSize = 12, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, FontFamily = new FontFamily("Segoe UI Symbol") } };
+                        var b = new Border { Width = 46, Height = 33, Background = System.Windows.Media.Brushes.Transparent, Cursor = System.Windows.Input.Cursors.Hand, Tag = "win.cap", Child = new TextBlock { Text = glyph, Foreground = new SolidColorBrush(Color.FromRgb(0xE8, 0xEE, 0xF8)), FontSize = 12.5, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, FontFamily = new FontFamily("Segoe UI Symbol") } };
                         System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(b, true);
                         b.MouseEnter += delegate { b.Background = new SolidColorBrush(hover); }; b.MouseLeave += delegate { b.Background = System.Windows.Media.Brushes.Transparent; };
                         b.MouseLeftButtonUp += delegate { act(); };
-                        btns.Children.Add(b); return b;
+                        btns.Children.Add(b); CapButtons.Add(b); return b;
                     };
-                    if (ResizeMode != ResizeMode.NoResize) cap("—", Color.FromRgb(40, 50, 75), () => WindowState = WindowState.Minimized);
-                    if (ResizeMode == ResizeMode.CanResize || ResizeMode == ResizeMode.CanResizeWithGrip) cap("▢", Color.FromRgb(40, 50, 75), () => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized);
+                    if (ResizeMode != ResizeMode.NoResize) cap("—", Color.FromRgb(0x3A, 0x4A, 0x6E), () => WindowState = WindowState.Minimized);
+                    if (ResizeMode == ResizeMode.CanResize || ResizeMode == ResizeMode.CanResizeWithGrip) cap("▢", Color.FromRgb(0x3A, 0x4A, 0x6E), () => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized);
                     cap("✕", Color.FromRgb(232, 17, 35), () => Close());
                     titleText = new TextBlock { Text = (base.Title ?? "").Replace("SPASIX FUTURE • ", "").Replace("SPASIX FUTURE", ""), Foreground = new SolidColorBrush(Color.FromRgb(150, 165, 195)), FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
                     bar.Children.Add(titleText);
@@ -41103,6 +41187,61 @@ namespace NinjaTrader.NinjaScript.AddOns
                 }
             }
             protected override void OnRender(System.Windows.Media.DrawingContext dc) { RenderTo(dc); }
+        }
+        // 🖼 13l BEHIND THE CHART — one per plot, UNDER the chart's canvas (the canvas turns transparent while it shows, its own background colour is painted here instead):
+        // [the template's background] [the picture (one frozen ImageBrush, bitmap-cached) or the drawn scene, at the chosen opacity] [the contrast scrim in the background colour]
+        // [the optional faint particles]. Never hit-testable; inset to the plot (the price / time axes keep the plain background).
+        private sealed class KeystoneLookBehindLayer
+        {
+            public readonly Canvas Plot; public readonly Border Host, Photo, Scrim; public readonly Grid Inner; public readonly KeystoneSceneView Scene; public readonly KeystoneFxView Fx;
+            public double PlotW, PlotH; public string FxKind = ""; public bool FxReduce; public int FxCap = KeystoneParticles.Max; public bool FxOn, FxWant; public int Paints;
+            Brush lastBg; double lastScrimKey = double.NaN; Thickness lastM = new Thickness(-1);
+            public KeystoneLookBehindLayer(Canvas plot)
+            {
+                Plot = plot;
+                Host = new Border { IsHitTestVisible = false, Visibility = Visibility.Collapsed, Tag = "look.behind" };
+                Inner = new Grid { IsHitTestVisible = false, ClipToBounds = true, Tag = "look.behind.plot" };
+                Photo = new Border { IsHitTestVisible = false, Visibility = Visibility.Collapsed, Tag = "look.behind.photo" }; try { Photo.CacheMode = new BitmapCache(); } catch { }   /* rasterised once, again only on a resize */
+                Scene = new KeystoneSceneView { Tag = "look.behind.scene", Visibility = Visibility.Collapsed, Seed = 5 };
+                Scrim = new Border { IsHitTestVisible = false, Opacity = 0, Tag = "look.behind.scrim" };
+                Fx = new KeystoneFxView { Tag = "look.behind.fx", Visibility = Visibility.Collapsed, Opacity = Math.Min(0.22, KeystoneLookSettings.AnimBehindMax) };
+                Inner.Children.Add(Photo); Inner.Children.Add(Scene); Inner.Children.Add(Scrim); Inner.Children.Add(Fx); Host.Child = Inner;
+            }
+            // from the chart's render: the background colour, the plot inset and the contrast scrim — numbers compared, objects touched only when something changed
+            public void Paint(Brush bg, double imgLum, double opacity, bool picture, double top, double right, double bottom, double plotW, double plotH)
+            {
+                Paints++;
+                if (!ReferenceEquals(bg, lastBg)) { Host.Background = bg; Scrim.Background = bg; lastBg = bg; lastScrimKey = double.NaN; }
+                var m = new Thickness(0, Math.Max(0, top), Math.Max(0, right), Math.Max(0, bottom)); if (!m.Equals(lastM)) { Inner.Margin = m; lastM = m; }
+                double key = picture ? imgLum * 1000 + opacity : -1 - opacity;
+                if (key != lastScrimKey)
+                {
+                    lastScrimKey = key; double bl = 0.1; var sb = bg as SolidColorBrush; if (sb != null) bl = KeystoneLookBehind.Lum(sb.Color.R, sb.Color.G, sb.Color.B);
+                    Scrim.Opacity = picture ? KeystoneLookBehind.Scrim(bl, imgLum, opacity) : 0; ScrimNow = Scrim.Opacity; EffLum = KeystoneLookBehind.Effective(bl, imgLum, picture ? opacity : 0, Scrim.Opacity); BgLum = bl;
+                }
+                if (Math.Abs(plotW - PlotW) > 1 || Math.Abs(plotH - PlotH) > 1) { PlotW = plotW; PlotH = plotH; SyncFx(FxKind, FxReduce, FxCap, FxWant); }
+            }
+            public double ScrimNow, EffLum, BgLum;
+            public void SyncFx(string kind, bool reduce, int cap, bool on)
+            {
+                FxWant = on; FxOn = on && !string.IsNullOrEmpty(kind) && PlotW > 20 && PlotH > 20; Fx.Visibility = FxOn ? Visibility.Visible : Visibility.Collapsed;
+                if (!FxOn) { if (Fx.Sim.N > 0) Fx.Sim.Reset("", 1, 1, false, 3); FxKind = kind ?? ""; FxReduce = reduce; FxCap = cap; return; }
+                if (Fx.Sim.Kind != kind || Fx.Sim.Reduce != reduce || Fx.Sim.Cap != Math.Min(KeystoneParticles.Max, cap) || Math.Abs(Fx.Sim.W - PlotW) > 1 || Math.Abs(Fx.Sim.H - PlotH) > 1) Fx.Sim.Reset(kind, PlotW, PlotH, reduce, 13, cap);
+                FxKind = kind; FxReduce = reduce; FxCap = cap;
+            }
+        }
+        // 🖼 13l: the picture's mean luminance (decoded tiny, once per picture) — what the contrast guard needs; NaN = unreadable (the caller uses the palette's estimate)
+        private static double LookMeanLum(string file)
+        {
+            try
+            {
+                var b = LookBitmap(file, 64) as System.Windows.Media.Imaging.BitmapSource; if (b == null) return double.NaN;
+                var f = new System.Windows.Media.Imaging.FormatConvertedBitmap(b, PixelFormats.Bgra32, null, 0); int w0 = f.PixelWidth, h0 = f.PixelHeight; if (w0 <= 0 || h0 <= 0) return double.NaN;
+                int stride = w0 * 4; var px = new byte[stride * h0]; f.CopyPixels(px, stride, 0); double sum = 0; int n = 0;
+                for (int i = 0; i + 3 < px.Length; i += 4) { sum += KeystoneLookBehind.Lum(px[i + 2], px[i + 1], px[i]); n++; }
+                return n > 0 ? sum / n : double.NaN;
+            }
+            catch { return double.NaN; }
         }
         // 📷 a picture decoded ONCE at the display width (never the full camera resolution), frozen; null = unreadable (the caller falls back with a one-line note)
         private static ImageSource LookBitmap(string file, int decodeWidth)
@@ -41306,7 +41445,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly string[] StudioHookNames = { "replayTraderWindow", "replayTrader", "replayTraderTimer", "replayTraderLoad", "replayTraderFlat", "replayTraderEnd", "replayTraderOrder", "replayTraderStep", "replayTraderNewAccount", "replayTraderRewind",
             "studioStartRange", "studioPropStart", "studioPropSim", "studioPropRunDay", "studioAddSymbol", "studioRotEnter", "studioBoth", "studioTrader", "studioPropExport", "studioPropCompare", "studioPropFastStop", "studioPropNext", "studioPropView",
             "studioStrategy", "studioLayer", "studioRfvgErr", "studioRfvgSeen", "studioTriErr", "studioTriTicket", "studioTriSeen", "studioTriTake", "studioTriRot", "studioOfDesk", "studioLayerBar", "studioOfConfirm", "studioSetMode", "studioModeNow", "studioRotSides", "studioDataChanged", "studioShowReportDay", "studioDollarBracket", "studioTradeTags", "studioPoolAct", "studioPoolToggle",
-            "studioMainRow", "studioOpenDrawer", "studioShowDrawer", "studioTopRows", "studioTicksExport", "studioTradesExport", "studioLiveDemo", "studioLiveStep", "studioLiveBadge", "studioLivePush", "studioPracPanel", "studioRaceGo", "studioIsLive", "studioRotSim", "studioDrawerOverlay", "studioPracState", "studioLiveHistory", "studioTiles", "studioAttempts", "studioAttemptsText", "studioAttemptsExport", "studioEntryScore", "studioEntry", "studioLook" };
+            "studioMainRow", "studioOpenDrawer", "studioShowDrawer", "studioTopRows", "studioTicksExport", "studioTradesExport", "studioLiveDemo", "studioLiveStep", "studioLiveBadge", "studioLivePush", "studioPracPanel", "studioRaceGo", "studioIsLive", "studioRotSim", "studioDrawerOverlay", "studioPracState", "studioLiveHistory", "studioTiles", "studioAttempts", "studioAttemptsText", "studioAttemptsExport", "studioEntryScore", "studioEntry", "studioLook", "studioNews" };
         private static System.Reflection.FieldInfo StudioHookField(string n) { return typeof(KeystoneArc5MResearchLab).GetField(n, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public); }
         private void SaveStudioHooks(Window owner)
         {
@@ -41782,7 +41921,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var newsAll = LoadStudioNews(); var sessionNews = new List<KeystoneNewsEvent>();
             // 📰 the NEWS tab's calendar (every currency, forecast / previous) + headlines; filled in the background (LIVE)
             var newsCal = LoadNewsCalendar(); var newsHeads = new List<Tuple<DateTime, string, string, string>>(); string newsCalStatus = newsCal.Count > 0 ? "the saved calendar • loading the new one …" : "loading the ForexFactory calendar …", newsHeadStatus = "";
-            DateTime newsCalAt = DateTime.MinValue, newsHeadAt = DateTime.MinValue, newsNyNow = DateTime.MinValue; bool newsCalBusy = false, newsHeadBusy = false;
+            DateTime newsCalAt = DateTime.MinValue, newsHeadAt = DateTime.MinValue, newsNyNow = DateTime.MinValue; bool newsCalBusy = false, newsHeadBusy = false; string newsHideKey = wsGet("news.hide." + (liveWindow ? "live" : "bt"), ""), newsBannerMode = "";   /* 📰 13l: the banner's ✕ (news.hide.live / .bt in the workspace) */
             // the prediction journal: every tradeable plan the pattern box showed, and what happened (Studio\PredictionLog.csv)
             int predRight = 0, predWrong = 0, predNeither = 0; double predExpected = 0;
             try
@@ -41830,7 +41969,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             };
             var themes = ChartThemeDefs.Select(t => t[1] == "" ? new ChartTheme { Name = t[0], Bg = Panel, Grid = Tint(Card, 160), Up = Green, Down = Red, Text = Muted } : new ChartTheme { Name = t[0], Bg = HexBrush(t[1]), Grid = HexBrush(t[2]), Up = HexBrush(t[3]), Down = HexBrush(t[4]), Text = HexBrush(t[5]), Hollow = t[6] == "1", Style = t.Length > 7 ? t[7] : "", Group = t.Length > 8 ? t[8] : "" }).ToList();
             int themeIndex = Math.Max(0, themes.FindIndex(t => t.Name == wsGet("theme", "TRADINGVIEW DARK"))); bool hollowUp = wsGet("hollow", "0") == "1";
-            Action lookOpenH = null; var lookVeils = new List<Border>(); var lookTmplBtns = new List<Button>();   /* 🍂 13k: the 🎨 LOOK gallery, the "faint behind the chart" veil of every plot (collapsed by default), the 🎨 template buttons (their label follows a photo template's chart match) */
+            Action lookOpenH = null; var lookBehinds = new List<KeystoneLookBehindLayer>(); bool lookBehindOn = false, lookBehindPic = false; double lookBehindOp = 0.18, lookBehindLum = 0.2; var lookTmplBtns = new List<Button>(); var lookToolBtns = new List<Button>(); ContextMenu lookLastMenu = null;   /* 🍂 13k: the 🎨 LOOK gallery, the "faint behind the chart" veil of every plot (collapsed by default), the 🎨 template buttons (their label follows a photo template's chart match) */
             // LIVE TRADING layers: every level ALWAYS / NEAR (fades in near price, flashing) / OFF; setups, news, drawings on / off
             var layerModes = new KeystoneLayerModes(); string layerSymR = null; layerModes.Sym = () => layerSymR ?? (active != null ? active.Symbol : "");   // per instrument: the pane being drawn, else the selected one
             if (liveWindow) foreach (var lk0 in new[] { "PDH", "PDL", "PDC", "ONH", "ONL", "HOD", "LOD" }) layerModes[lk0] = KeystoneLiveTools.Off;   // highs / lows lines start OFF every time (LAYERS turns them on)
@@ -42876,6 +43015,21 @@ namespace NinjaTrader.NinjaScript.AddOns
                 pb.MouseOver = true; pb.MouseX = mx; pb.MouseY = my; render(pb); var gk = clickPick(pb, mx, my);
                 return (pb.HoverGrab ?? "-") + "|" + (gk == null ? "-" : gk.Code) + "|" + (gk == null ? "-" : gk.IsLabel ? "box" : "line");
             };
+            studioNews = cmd =>
+            {   /* 📰 13l test hook: "FAKE <min>" = a stand-in USD HIGH event <min> minutes from now (NY), "X" = the banner's ✕ (what a click on it runs), "STATE", "CLEAR" */
+                var pb = active; if (pb == null) return "no pane"; var c0 = (cmd ?? "").Trim().ToUpperInvariant(); DateTime nyT; try { nyT = TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTime.UtcNow, "Eastern Standard Time"); } catch { try { nyT = TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTime.UtcNow, "America/New_York"); } catch { nyT = DateTime.Now; } }
+                if (pb.Trader == null && (c0.StartsWith("FAKE ") || c0 == "STATE"))
+                {   /* the stand-in NinjaTrader feeds no candles: 90 stand-in minutes up to now (drawing only — no feed, no account, nothing sent) */
+                    var sb = new List<KeystoneArcBar>(); double p0 = 20000; for (int i = 90; i >= 1; i--) { var t0 = nyT.AddMinutes(-i); t0 = t0.AddSeconds(-t0.Second).AddMilliseconds(-t0.Millisecond); double o = p0, c1 = p0 + ((i * 37) % 11 - 5); sb.Add(new KeystoneArcBar { Time = t0, Symbol = pb.Symbol, Open = o, High = Math.Max(o, c1) + 2, Low = Math.Min(o, c1) - 2, Close = c1, Volume = 100 }); p0 = c1; }
+                    pb.Trader = new KeystoneReplayTrader(sb, pb.Symbol, 60); pb.Trader.JumpTo(sb[sb.Count - 1].Time);
+                }
+                if (c0.StartsWith("FAKE ")) { newsCal.RemoveAll(e => e.Title.StartsWith("TEST ")); newsCal.Add(new KeystoneNewsEvent { Title = "TEST Core PPI m/m " + c0.Substring(5).Trim(), Time = nyT.AddMinutes(ParseStudioInt(c0.Substring(5), 60)), Currency = "USD", Impact = "HIGH" }); }
+                else if (c0 == "CLEAR") { newsCal.RemoveAll(e => e.Title.StartsWith("TEST ")); newsHideKey = ""; try { var w0 = ReadStudioWorkspace(); w0["news.hide." + (liveWindow ? "live" : "bt")] = ""; WriteStudioWorkspace(w0); } catch { } }
+                else if (c0 == "X") { Action a0; if (!pb.HotActs.TryGetValue("ACT:NEWSX", out a0) || !pb.InfoHot.Any(h => h.Item2 == "ACT:NEWSX")) return "no ✕"; a0(); }
+                newsNyNow = nyT; newsBannerMode = "NONE"; render(pb);
+                var hx = pb.InfoHot.FirstOrDefault(h => h.Item2 == "ACT:NEWSX"); var bn = pb.Canvas.Children.OfType<FrameworkElement>().FirstOrDefault(x => Convert.ToString(x.Tag).StartsWith("news."));
+                return "mode=" + newsBannerMode + ";x=" + (hx == null ? "-" : string.Join(",", hx.Item1.Select(v => v.ToString("0", CultureInfo.InvariantCulture)))) + ";drawn=" + (bn == null ? "-" : Convert.ToString(bn.Tag) + "@" + System.Windows.Controls.Canvas.GetLeft(bn).ToString("0", CultureInfo.InvariantCulture) + "," + System.Windows.Controls.Canvas.GetTop(bn).ToString("0", CultureInfo.InvariantCulture)) + ";hidden=" + newsHideKey + ";top=" + pb.Top.ToString("0", CultureInfo.InvariantCulture) + ";why=" + (ofViewOn ? "of" : "") + (cleanChart ? "clean" : "") + (layerOf("NEWS", KeystoneLiveTools.Always) == KeystoneLiveTools.Off ? "layeroff" : "") + (pb.Trader == null ? "notrader" : "bars" + pb.Trader.Bars.Count) + (chartsPaused ? "paused" : "");
+            };
             studioTickBanner = cmd =>
             {   /* 🛠 11y test hook: "LIST" = the banner's buttons as the chart's click path sees them (key@x1,y1,x2,y2); "GET" / "LIB" = run that hot rect's action (what a click on it runs) */
                 var pb = active; if (pb == null) return "no pane"; render(pb); var hs = pb.InfoHot.Where(h => h.Item2.StartsWith("ACT:TICKS|")).ToList();
@@ -42965,7 +43119,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 }
                 // grid + price axis
                 double rawStep = (pn.Hi - pn.Lo) / 8, mag = Math.Pow(10, Math.Floor(Math.Log10(Math.Max(1e-9, rawStep)))), step = new[] { 1, 2, 2.5, 5, 10 }.Select(v => v * mag).First(v => v >= rawStep);
-                var th = themes[themeIndex]; cv.Background = th.Bg; var gridBrush = th.Grid; var axisText = th.Text; bool gridOn = layerOf("GRID", 1) == 1;   /* ▦ 11s: grid lines on / off (the axis labels stay) */
+                var th = themes[themeIndex]; { KeystoneLookBehindLayer lbh = null; if (lookBehindOn) foreach (var x0 in lookBehinds) if (ReferenceEquals(x0.Plot, cv)) { lbh = x0; break; } if (lbh != null) { cv.Background = System.Windows.Media.Brushes.Transparent; lbh.Paint(th.Bg, lookBehindLum, lookBehindOp, lookBehindPic, pn.Top, pn.AxisW, pn.TimeH, pn.PlotW, pn.PlotH); } else cv.Background = th.Bg; }   /* 🖼 13l: BEHIND THE CHART paints the background under the canvas */ var gridBrush = th.Grid; var axisText = th.Text; bool gridOn = layerOf("GRID", 1) == 1;   /* ▦ 11s: grid lines on / off (the axis labels stay) */
                 for (double p = Math.Ceiling(pn.Lo / step) * step; p <= pn.Hi; p += step)
                 {
                     double y = yOf(pn, p); if (gridOn) cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = pn.PlotW, Y1 = y, Y2 = y, Stroke = gridBrush, StrokeThickness = 1, Tag = "chart.grid" });
@@ -43788,9 +43942,22 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (nb0 != null)
                     {
                         double mL = (nb0.Time - newsNyNow).TotalMinutes; bool hotB = mL <= 15 && mL >= -5, flB = hotB && DateTime.Now.Millisecond < 500;
-                        var bnT = new TextBlock { Text = "📰 HIGH IMPACT • USD " + nb0.Title + " • " + tzShow(nb0.Time).ToString("HH:mm", CultureInfo.InvariantCulture) + " " + tzLabel() + " • " + KeystoneNews.Until(nb0.Time, newsNyNow), Foreground = flB ? System.Windows.Media.Brushes.White : hotB ? Red : Orange, FontSize = hotB ? 12.5 : 11, FontWeight = FontWeights.Bold };
-                        var bnB = new Border { Child = bnT, CornerRadius = new CornerRadius(7), Padding = new Thickness(9, 2, 10, 3), BorderThickness = new Thickness(1.2), BorderBrush = hotB ? Red : Tint(Orange, 160), Background = flB ? Red : Tint(Bg, 225), IsHitTestVisible = false };
-                        bnB.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity)); System.Windows.Controls.Canvas.SetLeft(bnB, Math.Max(4, (pn.PlotW - bnB.DesiredSize.Width) / 2)); System.Windows.Controls.Canvas.SetTop(bnB, pn.Top + 38); cv.Children.Add(bnB);
+                        string nKey = KeystoneNewsBanner.Key(nb0.Title, nb0.Time), nMode = KeystoneNewsBanner.Mode(nKey, newsHideKey, mL); newsBannerMode = nMode;
+                        if (nMode != "NONE")
+                        {   /* 📰 13l: top-left INSIDE the plot (above the candles' 8 % head-room), ✕ = hide this event (remembered per window); hidden → a small pill only in its last 5 min */
+                            bool pill = nMode == "PILL";
+                            var bnT = new TextBlock { Text = pill ? "📰 " + tzShow(nb0.Time).ToString("HH:mm", CultureInfo.InvariantCulture) + " " + nb0.Title + " • " + KeystoneNews.Until(nb0.Time, newsNyNow) : "📰 HIGH IMPACT • USD " + nb0.Title + " • " + tzShow(nb0.Time).ToString("HH:mm", CultureInfo.InvariantCulture) + " " + tzLabel() + " • " + KeystoneNews.Until(nb0.Time, newsNyNow), Foreground = flB ? System.Windows.Media.Brushes.White : hotB ? Red : Orange, FontSize = pill ? 10 : hotB ? 12 : 11, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center };
+                            var bnRow = new StackPanel { Orientation = Orientation.Horizontal }; bnRow.Children.Add(bnT);
+                            if (!pill) bnRow.Children.Add(new Border { Width = 16, Height = 16, Margin = new Thickness(8, 0, 0, 0), CornerRadius = new CornerRadius(8), Background = Tint(Orange, 60), VerticalAlignment = VerticalAlignment.Center, Child = new TextBlock { Text = "✕", Foreground = flB ? System.Windows.Media.Brushes.White : Orange, FontSize = 10, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } });
+                            var bnB = new Border { Child = bnRow, CornerRadius = new CornerRadius(pill ? 9 : 7), Padding = pill ? new Thickness(6, 0, 7, 1) : new Thickness(8, 2, 5, 3), BorderThickness = new Thickness(pill ? 1 : 1.2), BorderBrush = hotB ? Red : Tint(Orange, 160), Background = flB ? Red : Tint(Bg, 225), IsHitTestVisible = false, Tag = pill ? "news.pill" : "news.banner" };
+                            bnB.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity)); double bnW = bnB.DesiredSize.Width > 0 ? bnB.DesiredSize.Width : 7.0 * bnT.Text.Length + (pill ? 14 : 40), bnH = bnB.DesiredSize.Height > 0 ? bnB.DesiredSize.Height : (pill ? 16 : 22), bnX = 8, bnY = pn.Top + 4;
+                            System.Windows.Controls.Canvas.SetLeft(bnB, bnX); System.Windows.Controls.Canvas.SetTop(bnB, bnY); cv.Children.Add(bnB);
+                            if (!pill)
+                            {
+                                string kH = nKey; pn.InfoHot.Add(Tuple.Create(new[] { bnX + bnW - 26, bnY, bnX + bnW, bnY + bnH }, "ACT:NEWSX", new[] { "✕ hide this news banner", "it comes back for a NEW event, or as a small pill in this one's last 5 minutes" }, (Brush)Orange));
+                                pn.HotActs["ACT:NEWSX"] = () => { newsHideKey = kH; try { var c0 = ReadStudioWorkspace(); c0["news.hide." + (liveWindow ? "live" : "bt")] = kH; WriteStudioWorkspace(c0); ws["news.hide." + (liveWindow ? "live" : "bt")] = kH; } catch { } foreach (var p2 in panes) render(p2); };
+                            }
+                        }
                     }
                 }
                 // the previous day: its session shaded, yesterday's high / low / close and today's overnight high / low, labelled;
@@ -45986,7 +46153,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 // chart: the canvas draws, a transparent layer on top takes the mouse
                 var cv = new Canvas { Background = Panel, ClipToBounds = true, IsHitTestVisible = false, Tag = "chart.plot" }; pn.Canvas = cv;
                 var hit = new Border { Background = System.Windows.Media.Brushes.Transparent, Cursor = System.Windows.Input.Cursors.Cross, Focusable = true }; pn.Hit = hit;
-                var chartGrid = new Grid(); chartGrid.Children.Add(cv); { var veil = new Border { IsHitTestVisible = false, Visibility = Visibility.Collapsed, Tag = "look.veil" }; lookVeils.Add(veil); chartGrid.Children.Add(veil); } chartGrid.Children.Add(hit);   /* 🍂 13k: the veil sits between the drawing and the mouse layer — never hit-testable, ≤ 6 %, static */
+                var chartGrid = new Grid(); { var lbh = new KeystoneLookBehindLayer(cv); lookBehinds.Add(lbh); chartGrid.Children.Add(lbh.Host); } chartGrid.Children.Add(cv); chartGrid.Children.Add(hit);   /* 🖼 13l: BEHIND THE CHART sits UNDER the canvas (the candles / labels draw above it), the mouse layer on top — never hit-testable */
                 // timeframes: one click (keys 1 … 9 too)
                 var tfStrip = new WrapPanel { Margin = new Thickness(0, 0, 0, 3) }; var tfButtons = new List<Button>();
                 for (int ti = 0; ti < tfNames.Length; ti++)
@@ -46140,7 +46307,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var sp = new ReplayPane { Symbol = sym, IsSplit = true, Main = pn, Tf = tfMinutes[Math.Max(0, Math.Min(tfMinutes.Length - 1, splitTf))] }; pn.Split = sp;
                 var cv2 = new Canvas { Background = Panel, ClipToBounds = true, IsHitTestVisible = false, Tag = "chart.plot" }; sp.Canvas = cv2;
                 var hit2 = new Border { Background = System.Windows.Media.Brushes.Transparent, Cursor = System.Windows.Input.Cursors.Cross, Focusable = true }; sp.Hit = hit2;
-                var chart2 = new Grid(); chart2.Children.Add(cv2); { var veil2 = new Border { IsHitTestVisible = false, Visibility = Visibility.Collapsed, Tag = "look.veil" }; lookVeils.Add(veil2); chart2.Children.Add(veil2); } chart2.Children.Add(hit2);
+                var chart2 = new Grid(); { var lbh2 = new KeystoneLookBehindLayer(cv2); lookBehinds.Add(lbh2); chart2.Children.Add(lbh2.Host); } chart2.Children.Add(cv2); chart2.Children.Add(hit2);
                 var strip2 = new WrapPanel { Margin = new Thickness(0, 0, 0, 3) };
                 for (int ti = 0; ti < tfNames.Length; ti++)
                 {
@@ -46169,8 +46336,12 @@ namespace NinjaTrader.NinjaScript.AddOns
                     tmplBtn.ToolTip = "Chart template: point at one to preview it, click to keep it"; HelpOn(tmplBtn, "TB.TEMPLATE"); lookTmplBtns.Add(tmplBtn);
                     tmplBtn.Click += delegate
                     {
-                        int kept = themeIndex; bool chosen = false; var cmT = new ContextMenu(); var tg = new Dictionary<string, MenuItem>();
+                        int kept = themeIndex; bool chosen = false; var cmT = new ContextMenu(); var tg = new Dictionary<string, MenuItem>(); lookLastMenu = cmT;
                         Action<int> show = ix => { if (themeIndex == ix) return; themeIndex = ix; foreach (var p2 in panes) render(p2); };
+                        {   /* 🎨 13l: the LOOK gallery is the FIRST item (the user could not find it at the bottom) — it opens inside this window */
+                            var lookMi = new MenuItem { Header = "🎨 LOOK ▾  seasons • scenes • 📷 photos (around or 🖼 behind the chart) • ✨ animation • 💬 quotes", Tag = "look.menu", FontWeight = FontWeights.Bold, ToolTip = "Seasonal accents, landscapes (drawn or real photos) around the chart or faintly BEHIND the candles, light animation, the header quote / reminders — one-click previews, ✓ KEEP or ↺ BACK. Display only." };
+                            lookMi.Click += delegate { chosen = true; if (lookOpenH != null) lookOpenH(); }; cmT.Items.Add(lookMi); cmT.Items.Add(new Separator());
+                        }
                         for (int k = 0; k < themes.Count; k++)
                         {
                             int kk = k; var th = themes[k];
@@ -46196,13 +46367,14 @@ namespace NinjaTrader.NinjaScript.AddOns
                             cmT.Items.Add(palM);
                         }
                         var hol = new MenuItem { Header = (hollowUp ? "✓ " : "") + "Hollow up candles" }; hol.Click += delegate { chosen = true; hollowUp = !hollowUp; foreach (var p2 in panes) render(p2); if (saveWorkspace != null) saveWorkspace(); }; cmT.Items.Add(hol);
-                        cmT.Items.Add(new Separator());   /* 🍂 13k: ONE entry for the look — the gallery opens inside this window (never a separate window) */
-                        var lookMi = new MenuItem { Header = "🎨 LOOK ▾  seasons • scenes • 📷 photos • ✨ animation • 💬 quotes", Tag = "look.menu", FontWeight = FontWeights.Bold, ToolTip = "Seasonal accents, landscapes (drawn or real photos), light animation around the chart, the header quote / reminders — one-click previews, ✓ KEEP or ↺ BACK. Display only." };
-                        lookMi.Click += delegate { chosen = true; if (lookOpenH != null) lookOpenH(); }; cmT.Items.Add(lookMi);
                         cmT.Closed += delegate { if (!chosen || themeIndex != kept) show(kept); };
                         cmT.PlacementTarget = tmplBtn; cmT.IsOpen = true;
                     };
                     tfStrip.Children.Add(tmplBtn);
+                    // 🎨 13l: the LOOK gallery one click away, right next to the template button (both windows)
+                    var lookBtn = Btn("🎨 LOOK", Card); lookBtn.Height = 26; lookBtn.FontSize = 12; lookBtn.Margin = new Thickness(0, 0, 2, 0); lookBtn.Padding = new Thickness(8, 0, 8, 0); lookBtn.Tag = "look.toolbar";
+                    lookBtn.ToolTip = "🎨 LOOK: seasons, scenes, photos around or behind the chart, animation, the header line"; HelpOn(lookBtn, "TB.LOOK"); lookToolBtns.Add(lookBtn);
+                    lookBtn.Click += delegate { if (lookOpenH != null) lookOpenH(); }; tfStrip.Children.Add(lookBtn);
                 }
                 splitBtn.Click += delegate { splitOn = !splitOn; foreach (var p2 in panes) { if (p2.SetSplit != null) p2.SetSplit(splitOn); foreach (var b2 in p2.SplitButtons) PaintBtn(b2, splitOn ? Gold : Card); render(p2); } saveWorkspace(); };
                 // the split chart: wheel = zoom at the mouse, drag = scroll, drag the price axis = stretch, double-click = back to now
@@ -47075,6 +47247,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                         cm.Items.Add(draw);
                         if (r != null) cm.Items.Add(mi("Horizontal line @ " + fmt(px), delegate { pn.Drawings.Add(new ReplayDrawing { Kind = "HLINE", T1 = simTime, T2 = simTime, P1 = px, P2 = px, Color = drawColor, Width = drawWidth }); SaveStudioDrawings(panes); render(pn); }));
                         var tmpl = mi("Chart template", null);
+                        tmpl.Items.Add(mi("🎨 LOOK ▾  seasons • scenes • 📷 photos (around or 🖼 behind the chart) • ✨ animation", delegate { if (lookOpenH != null) lookOpenH(); })); tmpl.Items.Add(new Separator());   /* 🎨 13l: the gallery on top of the right-click templates too */
                         // the futures templates first, then the SpasiX for MT5 themes in their groups (the same looks on both platforms)
                         var tGroups = new Dictionary<string, MenuItem>();
                         // 👁 FAST PREVIEW: hover a template = the chart shows it at once; click = keep it (the menu STAYS OPEN, click the next one);
@@ -51387,8 +51560,21 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var posBig = new TextBlock { FontSize = 19, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas") }; var posSub = new TextBlock { Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.Bold };
                 { var ps = new StackPanel(); ps.Children.Add(posBig); ps.Children.Add(posSub); posChip.Child = ps; }
                 var tickerRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 16, 0) };
-                var rightHead = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center }; rightHead.Children.Add(tickerRow); rightHead.Children.Add(posChip); rightHead.Children.Add(newsChip); rightHead.Children.Add(clock); rightHead.Children.Add(connPill); rightHead.Children.Add(reconBtn);
+                /* 🪟 13l: the right-hand group WRAPS instead of being clipped (the user saw "↻ RECO…" at 1920 px): a WrapPanel gets the width left of the title, the news chip
+                   shrinks first (KeystoneHeadFit.NewsWidth), and only then ● LIVE / ↻ RECONNECT go to a second line — never cut off */
+                var rightHead = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Tag = "live.head.right" }; rightHead.Children.Add(tickerRow); rightHead.Children.Add(posChip); rightHead.Children.Add(newsChip); rightHead.Children.Add(clock); rightHead.Children.Add(connPill); rightHead.Children.Add(reconBtn);
+                reconBtn.Tag = "live.reconnect"; connPill.Tag = "live.conn";
                 DockPanel.SetDock(rightHead, Dock.Right); head.Children.Add(rightHead); clock.FontSize = 14; newsChip.MaxWidth = 300;   // 🧹 a short clock (NY Fri 17:00:00 • 5M closes 05:00)
+                head.SizeChanged += delegate
+                {
+                    try
+                    {
+                        double others = 0; foreach (UIElement e0 in rightHead.Children) { if (ReferenceEquals(e0, newsChip) || e0.Visibility != Visibility.Visible) continue; e0.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity)); others += e0.DesiredSize.Width + 16; }
+                        title.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                        newsChip.MaxWidth = KeystoneHeadFit.NewsWidth(head.ActualWidth, title.DesiredSize.Width + 22, others);
+                    }
+                    catch { }
+                };
                 var cardsRow = new WrapPanel { VerticalAlignment = VerticalAlignment.Center }; head.LastChildFill = false;   // the account chip sits in the button strip below
                 shell.Children.Add(head);
                 // ---- indicator checkboxes (our strategies' indicators, coloured, softly pulsing when on) + time zone — stays in FOCUS
@@ -56245,7 +56431,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (kw != null && kw.LookBack != null) { kw.LookBack.Children.Add(lkBackScene); kw.LookBack.Children.Add(lkBackImg); kw.LookBack.Opacity = 0.55; }
                 var lkTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(33) }; var lkClock = System.Diagnostics.Stopwatch.StartNew(); double lkLast = 0;
                 var lkQuoteTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(5) };
-                string lkNote = "", lkSeason = "", lkScene = "", lkFile = "", lkFileKind = "", lkAnim = ""; KeystoneSeasonPalette lkPal = null; ImageSource lkBmp = null; string lkBmpFile = "";
+                string lkNote = "", lkSeason = "", lkScene = "", lkFile = "", lkFileKind = "", lkAnim = ""; KeystoneSeasonPalette lkPal = null; ImageSource lkBmp = null; string lkBmpFile = ""; double lkBmpLum = double.NaN; ImageBrush lkBehindBrush = null; int lkBehindRenders = 0;
                 Func<bool> lkPaused = () => w.WindowState == WindowState.Minimized || !(w.IsActive || LookForceActive) || Mouse.LeftButton == MouseButtonState.Pressed || Mouse.Captured != null;
                 Func<double> lkBandW = () => kw != null && kw.LookBand != null && kw.LookBand.ActualWidth > 0 ? kw.LookBand.ActualWidth : 1600;
                 Action lkSlice = delegate
@@ -56270,6 +56456,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     {
                         double now = lkClock.Elapsed.TotalSeconds, dt = now - lkLast; lkLast = now; if (lkPaused()) return;
                         lkFx.Sim.Step(dt); lkFx.InvalidateVisual(); lkFx.Frames++;   /* only this element re-renders — never the chart */
+                        foreach (var lb in lookBehinds) if (lb.FxOn) { lb.Fx.Sim.Step(dt); lb.Fx.InvalidateVisual(); lb.Fx.Frames++; }   /* 13l: the optional faint particles behind the candles — their own layer only */
                     }
                 };
                 lkTimer.Tick += delegate { lkStep(); };
@@ -56312,6 +56499,25 @@ namespace NinjaTrader.NinjaScript.AddOns
                 };
                 lkQuoteX.MouseLeftButtonUp += (s0, e0) => { look.HideDay = nyNow().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); lookSave(look); lookLine(); e0.Handled = true; };
                 lkQuoteTimer.Tick += delegate { lookLine(); }; lkQuoteTimer.Start();
+                Action lkBehindApply = delegate
+                {   /* 🖼 13l BEHIND THE CHART: the picture / drawn scene under the candles at the chosen opacity (+ the contrast scrim, painted by the chart's render with the
+                       template's background) — never a video; the optional faint particles share the 150 budget across the plots */
+                    bool pic = lkFileKind == "PICTURE" && lkBmp != null, behind = look.Place == "BEHIND" && (lkScene != "" || pic), fxB = look.AnimBehind && lkAnim != "";
+                    double op = KeystoneLookSettings.ClampPct(look.BehindPct) / 100.0, lum = pic && !double.IsNaN(lkBmpLum) ? lkBmpLum : KeystoneLookBehind.SceneLum(lkPal);
+                    int shown = lookBehinds.Count(x => x.Plot.ActualWidth > 0); int cap = KeystoneLookBehind.CapPerPlot(shown > 0 ? shown : lookBehinds.Count);
+                    if (pic && (lkBehindBrush == null || !ReferenceEquals(lkBehindBrush.ImageSource, lkBmp))) { lkBehindBrush = new ImageBrush(lkBmp) { Stretch = Stretch.UniformToFill }; try { lkBehindBrush.Freeze(); } catch { } }   /* ONE frozen brush for every plot */
+                    foreach (var lb in lookBehinds)
+                    {
+                        lb.Host.Visibility = behind || fxB ? Visibility.Visible : Visibility.Collapsed;
+                        lb.Photo.Visibility = behind && pic ? Visibility.Visible : Visibility.Collapsed; lb.Photo.Background = behind && pic ? lkBehindBrush : null; lb.Photo.Opacity = op;
+                        lb.Scene.Visibility = behind && !pic ? Visibility.Visible : Visibility.Collapsed; if (behind && !pic) lb.Scene.Set(lkScene, lkPal); lb.Scene.Opacity = op;
+                        lb.Fx.Pal = lkPal; lb.SyncFx(lkAnim, look.Reduce, cap, fxB);
+                    }
+                    bool on = behind || fxB; double opB = behind ? op : 0;
+                    bool changed = on != lookBehindOn || behind != lookBehindPic || Math.Abs(opB - lookBehindOp) > 1e-9 || Math.Abs(lum - lookBehindLum) > 1e-9;
+                    lookBehindOn = on; lookBehindPic = behind; lookBehindOp = opB; lookBehindLum = lum;
+                    if (changed) { lkBehindRenders++; renderAll(); }   /* the canvas turns transparent / back (the chart's own render paints the background + the scrim) */
+                };
                 int lkThemeSaved = themeIndex;
                 Action<int> lkSetTheme = ix =>
                 {
@@ -56339,7 +56545,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                         }
                         if (lkFileKind == "PICTURE")
                         {
-                            if (lkBmpFile != lkFile || lkBmp == null) { lkBmp = LookBitmap(lkFile, KeystoneLookFiles.DecodeWidth(w.ActualWidth > 0 ? w.ActualWidth : 1920)); lkBmpFile = lkBmp != null ? lkFile : ""; }
+                            if (lkBmpFile != lkFile || lkBmp == null) { lkBmp = LookBitmap(lkFile, KeystoneLookFiles.DecodeWidth(w.ActualWidth > 0 ? w.ActualWidth : 1920)); lkBmpFile = lkBmp != null ? lkFile : ""; lkBmpLum = lkBmp != null ? LookMeanLum(lkFile) : double.NaN; lkBehindBrush = null; }   /* decoded once per picture (+ a tiny copy for its mean luminance) */
                             if (lkBmp == null) { lkNote = "📷 cannot read " + Path.GetFileName(lkFile) + " — " + (ph != null ? "the drawn " + KeystoneScene.Label(ph.Fallback) : "no scene"); lkScene = ph != null ? ph.Fallback : ""; lkFile = ""; lkFileKind = ""; }
                         }
                         // the accents (never a P/L / candle colour): the bar, its glow line, the title ink, the window back, the buttons' hairline edge, the tab frame
@@ -56379,19 +56585,11 @@ namespace NinjaTrader.NinjaScript.AddOns
                         lkBandScrim.Visibility = lkFile != "" ? Visibility.Visible : Visibility.Collapsed;
                         if (lkFile != "") { var sc = new LinearGradientBrush { StartPoint = new System.Windows.Point(0, 0), EndPoint = new System.Windows.Point(1, 0) }; foreach (var st in new[] { Tuple.Create(0.72, 0.0), Tuple.Create(0.2, 0.26), Tuple.Create(0.14, 0.55), Tuple.Create(0.62, 1.0) }) sc.GradientStops.Add(new GradientStop(LookColor(KeystoneSeasons.Alpha(lkPal.Deep, st.Item1)), st.Item2)); try { sc.Freeze(); } catch { } lkBandScrim.Background = sc; }
                         lkCredit.Text = ph != null && lkFile != "" ? ph.Credit : ""; lkCredit.Visibility = lkCredit.Text != "" ? Visibility.Visible : Visibility.Collapsed;
-                        // "faint behind the chart": a static ≤ 6 % veil of the scene / picture (never a video, never animated inside the plot)
-                        bool faint = look.Place == "FAINT" && (lkScene != "" || lkFileKind == "PICTURE");
-                        foreach (var v in lookVeils)
-                        {
-                            v.Opacity = Math.Min(0.06, KeystoneLookSettings.FaintOpacity); v.Visibility = faint ? Visibility.Visible : Visibility.Collapsed;
-                            if (!faint) { v.Child = null; v.Background = null; continue; }
-                            if (lkFileKind == "PICTURE") { v.Child = null; v.Background = new ImageBrush(lkBmp) { Stretch = Stretch.UniformToFill }; }
-                            else { v.Background = null; var sv = v.Child as KeystoneSceneView; if (sv == null) { sv = new KeystoneSceneView { Tag = "look.veil.scene" }; v.Child = sv; } sv.Set(lkScene, lkPal); }
-                        }
-                        // ✨ the animation (header band only)
+                        if (look.Place == "BEHIND" && lkFileKind == "VIDEO") lkNote = "🎞 a video stays around the chart (title band + frame) — never behind the candles; pick a picture or a scene for BEHIND THE CHART";
+                        // ✨ the animation (the header band; behind the candles too only when ticked)
                         lkAnim = look.AnimNow(ny); lkFx.Pal = lkPal; lkTimer.Interval = TimeSpan.FromMilliseconds(look.Reduce ? 66 : 33);
                         if (lkFx.Sim.Kind != lkAnim || Math.Abs(lkFx.Sim.W - lkBandW()) > 1 || lkFx.Sim.Reduce != look.Reduce) lkFx.Sim.Reset(lkAnim, lkBandW(), 34, look.Reduce, 11);
-                        lkAnimState(); lookLine();
+                        lkBehindApply(); lkAnimState(); lookLine();
                     }
                 };
                 if (kw != null && kw.LookBand != null) kw.LookBand.SizeChanged += delegate { lkSlice(); if (lkAnim != "" && Math.Abs(lkFx.Sim.W - lkBandW()) > 1) { lkFx.Sim.Reset(lkAnim, lkBandW(), 34, look.Reduce, 11); lkAnimState(); } };
@@ -56420,15 +56618,21 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (lkGalNote != null) lkGalNote.Text = lkNote != "" ? lkNote : "previewing — click to choose, ✓ KEEP to save, ↺ BACK (Esc) to undo";
                 };
                 Action lkUnpreview = delegate { if (lkChosen == null) return; look = lkClone(lkChosen); lkSetTheme(lkChosenTheme); lookApply(); };
+                var lkRefresh = new List<Action>(); var lkChips = new Dictionary<string, Action>(); var lkChipText = new Dictionary<string, TextBlock>(); System.Windows.Controls.ScrollViewer lkScroll = null; int lkGalBuilds = 0, lkGalRefreshes = 0;
+                Action lkGalRefresh = delegate
+                {   /* 13l: a choice updates the ✓ / ☑ marks IN PLACE — the panel is never rebuilt, so it never jumps back to the top */
+                    lkGalRefreshes++; foreach (var r0 in lkRefresh) { try { r0(); } catch { } }
+                    if (lkGalNote != null) lkGalNote.Text = lkNote != "" ? lkNote : "point at a tile = live preview • click = choose (click the chosen one again = back to the default) • ✓ KEEP saves • ↺ BACK / Esc undoes";
+                };
                 Action<Action<KeystoneLookSettings>> lkChoose = mut =>
                 {
                     var t = lkClone(lkChosen ?? look); mut(t); lkChosen = t; var ph = t.Photo; if (ph != null && lkMatchTheme) { int ix = themes.FindIndex(x => x.Name == ph.ChartTheme); if (ix >= 0) lkChosenTheme = ix; }
-                    look = lkClone(t); lkSetTheme(lkChosenTheme); lookApply(); if (lkGalBuild != null) lkGalBuild();
+                    look = lkClone(t); lkSetTheme(lkChosenTheme); lookApply(); lkGalRefresh();
                 };
                 Action<bool> lkClose = keep =>
                 {
                     if (lkGallery.Visibility != Visibility.Visible) return; lkGallery.Visibility = Visibility.Collapsed;
-                    if (keep && lkChosen != null) { look = lkClone(lkChosen); lookSave(look); lkSetTheme(lkChosenTheme); if (saveWorkspace != null) saveWorkspace(); status.Text = "🎨 LOOK kept • " + (look.Photo != null ? look.Photo.Name : look.Scene == "MATCH" ? "the season's scene" : KeystoneScene.Label(look.Scene)) + (look.SeasonNow(nyNow()) != "" ? " • " + KeystoneSeasons.Icon(look.SeasonNow(nyNow())) + " " + look.SeasonNow(nyNow()) : "") + " (display only)"; }
+                    if (keep && lkChosen != null) { look = lkClone(lkChosen); lookSave(look); lkSetTheme(lkChosenTheme); if (saveWorkspace != null) saveWorkspace(); status.Text = "🎨 LOOK kept • " + (look.Photo != null ? look.Photo.Name : look.Scene == "MATCH" ? "the season's scene" : KeystoneScene.Label(look.Scene)) + (look.SeasonNow(nyNow()) != "" ? " • " + KeystoneSeasons.Icon(look.SeasonNow(nyNow())) + " " + look.SeasonNow(nyNow()) : "") + (look.Place == "BEHIND" ? " • behind the chart " + look.BehindPct + " %" : "") + " (display only)"; }
                     else if (lkSnap != null) { look = lkClone(lkSnap); lkSetTheme(lkSnapTheme); }
                     lookApply(); lkSnap = null; lkChosen = null;
                 };
@@ -56438,32 +56642,51 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (hover != null) { b.MouseEnter += delegate { hover(); }; b.MouseLeave += delegate { lkUnpreview(); }; }
                     b.MouseLeftButtonUp += (s0, e0) => { click(); e0.Handled = true; }; return b;
                 };
-                var lkTiles = new Dictionary<string, Border>();   /* the tiles by id (the smoke test's HOVER / CLICK) */
+                // 13l: an option chip that knows whether it is chosen (✓ for a group, ☑ / ☐ for an on / off switch) and repaints itself after every choice
+                Func<string, Func<string>, Func<bool>, bool, Brush, string, Action, Action, Border> lkOpt = (id, label, sel, box, accentB, tip, hover, click) =>
+                {
+                    var tb = new TextBlock { Foreground = Text, FontSize = 11.5, FontWeight = FontWeights.SemiBold };
+                    var b = lkChip("", accentB, tip, hover, click); b.Child = tb; var edge = Tint((SolidColorBrush)accentB, 150);
+                    Action paint = () => { bool on = sel(); tb.Text = (box ? (on ? "☑ " : "☐ ") : (on ? "✓ " : "")) + label(); b.BorderBrush = on ? (Brush)Gold : edge; b.BorderThickness = new Thickness(on ? 1.6 : 1); };
+                    paint(); lkRefresh.Add(paint); lkChips[id] = click; lkChipText[id] = tb; return b;
+                };
+                var lkTiles = new Dictionary<string, Border>(); var lkTileClick = new Dictionary<string, Action>();   /* the tiles by id (the smoke test's HOVER / CLICK) */
                 Func<string, string, FrameworkElement, string, Action, Action, Border> lkTile = (id, label, thumb, tip, hover, click) =>
                 {
                     var sp = new StackPanel(); var th = new Border { Width = 170, Height = 62, CornerRadius = new CornerRadius(6), ClipToBounds = true, Child = thumb, Background = Bg }; sp.Children.Add(th);
                     sp.Children.Add(new TextBlock { Text = label, Foreground = Text, FontSize = 11, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 170, Margin = new Thickness(0, 3, 0, 0) });
-                    bool sel = lkChosen != null && ((id.StartsWith("PHOTO:") && lkChosen.Scene == id) || (!id.StartsWith("PHOTO:") && lkChosen.Scene == id));
-                    var b = new Border { Width = 182, Padding = new Thickness(5), Margin = new Thickness(0, 0, 6, 6), CornerRadius = new CornerRadius(9), Background = sel ? Tint(Gold, 50) : Card, BorderBrush = sel ? Gold : Tint(Muted, 80), BorderThickness = new Thickness(sel ? 1.6 : 1), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = tip, Child = sp, Tag = "look.tile." + id };
-                    b.MouseEnter += delegate { hover(); }; b.MouseLeave += delegate { lkUnpreview(); }; b.MouseLeftButtonUp += (s0, e0) => { click(); e0.Handled = true; }; lkTiles[id] = b; return b;
+                    var b = new Border { Width = 182, Padding = new Thickness(5), Margin = new Thickness(0, 0, 6, 6), CornerRadius = new CornerRadius(9), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = tip, Child = sp, Tag = "look.tile." + id };
+                    Action paint = () => { bool sel = (lkChosen ?? look).Scene == id; b.Background = sel ? Tint(Gold, 50) : Card; b.BorderBrush = sel ? Gold : Tint(Muted, 80); b.BorderThickness = new Thickness(sel ? 1.6 : 1); };
+                    paint(); lkRefresh.Add(paint);
+                    b.MouseEnter += delegate { hover(); }; b.MouseLeave += delegate { lkUnpreview(); }; b.MouseLeftButtonUp += (s0, e0) => { click(); e0.Handled = true; }; lkTiles[id] = b; lkTileClick[id] = click; return b;
                 };
+                Action<string> lkSceneClick = id => lkChoose(t => t.Scene = KeystoneLookSettings.Toggle("SCENE", t.Scene, id));   /* the chosen tile again = back to ✏ MATCH */
                 Func<string, KeystoneSeasonPalette, FrameworkElement> lkThumbScene = (sc, pal) => { var v = new KeystoneSceneView { FixW = 170, FixH = 62, Width = 170, Height = 62, Seed = 7, Tag = "look.thumb" }; v.Set(sc, pal); return v; };
                 var lkThumbCache = new Dictionary<string, ImageSource>(StringComparer.OrdinalIgnoreCase); Func<string, FrameworkElement> lkThumbFile = f => { ImageSource bm; if (!lkThumbCache.TryGetValue(f, out bm) || bm == null) { bm = LookBitmap(f, 240); lkThumbCache[f] = bm; }   /* decoded once per gallery session of this window */ return bm == null ? (FrameworkElement)new TextBlock { Text = "?", Foreground = Muted, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } : new System.Windows.Controls.Image { Source = bm, Stretch = Stretch.UniformToFill, IsHitTestVisible = false }; };
+                Slider lkSlider = null; TextBlock lkSliderText = null; bool lkSliderBusy = false;
+                Action<int> lkSetPct = v =>
+                {   /* 🖼 13l: the BEHIND THE CHART opacity — live, only the behind layers are touched (no rebuild, no other look work) */
+                    v = KeystoneLookSettings.ClampPct(v); if (lkChosen == null) return; lkChosen.BehindPct = v; look.BehindPct = v;
+                    if (lkSliderText != null) lkSliderText.Text = "OPACITY " + v + " %"; if (lkSlider != null && Math.Abs(lkSlider.Value - v) > 0.01 && !lkSliderBusy) { lkSliderBusy = true; lkSlider.Value = v; lkSliderBusy = false; }
+                    lkBehindApply();
+                };
                 lkGalBuild = delegate
-                {
+                {   /* the whole panel — only when it opens or a downloaded photo's thumbnail arrives (13l: the scroll position is kept) */
+                    lkGalBuilds++; lkRefresh.Clear(); lkChips.Clear(); lkChipText.Clear(); lkTiles.Clear(); lkTileClick.Clear();
                     var ny = nyNow(); string seasonNow = KeystoneSeasons.Of(ny); var cur = lkChosen ?? look; var sp = new StackPanel();
+                    Func<KeystoneLookSettings> C = () => lkChosen ?? look;
                     var head = new DockPanel { Margin = new Thickness(0, 0, 0, 6) }; var xb = lkChip("↺ BACK", Card, "undo everything since the gallery opened (Esc)", null, () => lkClose(false)); DockPanel.SetDock(xb, Dock.Right); head.Children.Add(xb);
                     var kb = lkChip("✓ KEEP", Green, "keep this look for this window (remembered)", null, () => lkClose(true)); kb.Tag = "look.keep"; DockPanel.SetDock(kb, Dock.Right); head.Children.Add(kb);
                     head.Children.Add(new TextBlock { Text = "🎨 LOOK — " + (liveWindow ? "● LIVE TRADING" : "BACKTEST STUDIO") + " • display only, never over the candles", Foreground = Gold, FontSize = 15, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
                     sp.Children.Add(head);
-                    lkGalNote = new TextBlock { Text = lkNote != "" ? lkNote : "point at a tile = live preview • click = choose • ✓ KEEP saves • ↺ BACK / Esc undoes", Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8), Tag = "look.note" }; sp.Children.Add(lkGalNote);
+                    lkGalNote = new TextBlock { Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8), Tag = "look.note" }; sp.Children.Add(lkGalNote);
                     Func<string, TextBlock> sec = t => new TextBlock { Text = t, Foreground = Orchid, FontSize = 12, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 6, 0, 4) };
                     sp.Children.Add(sec("🍂 SEASON ACCENTS (title bar, glow line, window frame, button edges — P/L colours and candles never change)"));
                     var sr = new WrapPanel();
                     foreach (var m in KeystoneLookSettings.SeasonModes)
                     {
                         string mm = m; string lab = m == "AUTO" ? "AUTO (" + KeystoneSeasons.Icon(seasonNow) + " " + seasonNow + " now)" : m == "OFF" ? "OFF (the window's own colours)" : KeystoneSeasons.Icon(m) + " " + m;
-                        sr.Children.Add(lkChip((cur.Season == m ? "✓ " : "") + lab, m == "OFF" ? Card : (SolidColorBrush)LookSolid(KeystoneSeasons.Palette(m == "AUTO" ? seasonNow : m).Accent), "season by the New York date (northern hemisphere): spring Mar 20 • summer Jun 21 • fall Sep 22 • winter Dec 21", () => lkPreview(t => t.Season = mm), () => lkChoose(t => t.Season = mm)));
+                        sr.Children.Add(lkOpt("SEASON:" + m, () => lab, () => C().Season == mm, false, m == "OFF" ? Card : (SolidColorBrush)LookSolid(KeystoneSeasons.Palette(m == "AUTO" ? seasonNow : m).Accent), "season by the New York date (northern hemisphere): spring Mar 20 • summer Jun 21 • fall Sep 22 • winter Dec 21 • click the chosen one again = back to AUTO", () => lkPreview(t => t.Season = mm), () => lkChoose(t => t.Season = KeystoneLookSettings.Toggle("SEASON", t.Season, mm))));
                     }
                     sp.Children.Add(sr);
                     sp.Children.Add(sec("📷 PHOTO TEMPLATES (real photos, free licence — downloaded once when you click one; each with its matching chart template)"));
@@ -56473,14 +56696,15 @@ namespace NinjaTrader.NinjaScript.AddOns
                         var ph = ph0; string cf = KeystoneLookCatalog.CacheFile(lookDir, ph); bool have = File.Exists(cf);
                         FrameworkElement thumb = have ? lkThumbFile(cf) : lkThumbScene(ph.Fallback, ph.Palette());
                         if (!have) { var g0 = new Grid(); g0.Children.Add(thumb); g0.Children.Add(new Border { Background = Tint(Bg, 150), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, CornerRadius = new CornerRadius(4), Padding = new Thickness(4, 0, 4, 1), Margin = new Thickness(0, 0, 3, 3), Child = new TextBlock { Text = lkBusy.Contains(ph.Id) ? "⤓ downloading…" : "⤓ click to get it", Foreground = Text, FontSize = 9.5 } }); thumb = g0; }
-                        pr0.Children.Add(lkTile("PHOTO:" + ph.Id, ph.Name, thumb, ph.Name + " — " + ph.Mood + "\n" + ph.Credit + "\nchart template: " + ph.ChartTheme + (ph.Anim != "" ? " • fits " + KeystoneParticles.Label(ph.Anim) : "") + "\n" + (have ? "saved on this PC" : "not downloaded yet: point = the drawn " + KeystoneScene.Label(ph.Fallback) + ", click = download it once (" + lookDir + ")"),
-                            () => lkPreview(t => t.Scene = "PHOTO:" + ph.Id),
+                        string pid = "PHOTO:" + ph.Id;
+                        pr0.Children.Add(lkTile(pid, ph.Name, thumb, ph.Name + " — " + ph.Mood + "\n" + ph.Credit + "\nchart template: " + ph.ChartTheme + (ph.Anim != "" ? " • fits " + KeystoneParticles.Label(ph.Anim) : "") + "\n" + (have ? "saved on this PC" : "not downloaded yet: point = the drawn " + KeystoneScene.Label(ph.Fallback) + ", click = download it once (" + lookDir + ")") + "\nclick it again = back to ✏ MATCH",
+                            () => lkPreview(t => t.Scene = pid),
                             () =>
                             {
-                                if (File.Exists(KeystoneLookCatalog.CacheFile(lookDir, ph))) { lkChoose(t => t.Scene = "PHOTO:" + ph.Id); return; }
+                                if ((lkChosen ?? look).Scene == pid || File.Exists(KeystoneLookCatalog.CacheFile(lookDir, ph))) { lkSceneClick(pid); return; }
+                                lkChoose(t => t.Scene = pid);
                                 if (lkGalNote != null) lkGalNote.Text = "⤓ downloading " + ph.Name + " once (" + ph.Credit + ")…";
-                                lkChoose(t => t.Scene = "PHOTO:" + ph.Id);
-                                lkFetch(ph, err => { if (err != "") lkNote = "📷 " + ph.Name.Substring(2).Trim() + ": " + err + " — the drawn " + KeystoneScene.Label(ph.Fallback) + " instead"; if (look.Scene == "PHOTO:" + ph.Id || (lkChosen != null && lkChosen.Scene == "PHOTO:" + ph.Id)) { lookApply(); if (err != "") lkNote = "📷 " + ph.Name.Substring(2).Trim() + ": " + err + " — the drawn " + KeystoneScene.Label(ph.Fallback) + " instead"; } if (lkGallery.Visibility == Visibility.Visible && lkGalBuild != null) lkGalBuild(); lookLine(); });
+                                lkFetch(ph, err => { if (err != "") lkNote = "📷 " + ph.Name.Substring(2).Trim() + ": " + err + " — the drawn " + KeystoneScene.Label(ph.Fallback) + " instead"; if (look.Scene == pid || (lkChosen != null && lkChosen.Scene == pid)) { lookApply(); if (err != "") lkNote = "📷 " + ph.Name.Substring(2).Trim() + ": " + err + " — the drawn " + KeystoneScene.Label(ph.Fallback) + " instead"; } if (lkGallery.Visibility == Visibility.Visible && lkGalBuild != null) lkGalBuild(); lookLine(); });
                             }));
                     }
                     sp.Children.Add(pr0);
@@ -56489,37 +56713,50 @@ namespace NinjaTrader.NinjaScript.AddOns
                     sp.Children.Add(mt);
                     sp.Children.Add(sec("✏ DRAWN SCENES (made in code, no files — light, always available)"));
                     var dr = new WrapPanel(); var palNow = KeystoneSeasons.Palette(cur.SeasonNow(ny));
-                    dr.Children.Add(lkTile("MATCH", "✏ Match the season", lkThumbScene(KeystoneSeasons.DefaultScene(cur.SeasonNow(ny) == "" ? seasonNow : cur.SeasonNow(ny)), cur.SeasonNow(ny) == "" ? KeystoneSeasons.Palette(seasonNow) : palNow), "the season's own scene (fall = forest, winter = snowy peaks, spring = waterfall, summer = ocean sunset)", () => lkPreview(t => t.Scene = "MATCH"), () => lkChoose(t => t.Scene = "MATCH")));
-                    foreach (var sc0 in KeystoneScene.Names) { var sc = sc0; string nm = "✏ " + KeystoneScene.Label(sc).Substring(KeystoneScene.Label(sc).IndexOf(' ') + 1).ToLowerInvariant(); nm = "✏ " + char.ToUpperInvariant(nm[2]) + nm.Substring(3) + " (drawn)"; dr.Children.Add(lkTile(sc, nm, lkThumbScene(sc, cur.SeasonNow(ny) == "" ? KeystoneSeasons.Palette("") : palNow), KeystoneScene.Label(sc) + " — drawn in code in the season's colours", () => lkPreview(t => t.Scene = sc), () => lkChoose(t => t.Scene = sc))); }
-                    dr.Children.Add(lkTile("NONE", "No scene", new Border { Background = Bg }, "only the season accent (or nothing when the season is OFF)", () => lkPreview(t => t.Scene = "NONE"), () => lkChoose(t => t.Scene = "NONE")));
+                    dr.Children.Add(lkTile("MATCH", "✏ Match the season", lkThumbScene(KeystoneSeasons.DefaultScene(cur.SeasonNow(ny) == "" ? seasonNow : cur.SeasonNow(ny)), cur.SeasonNow(ny) == "" ? KeystoneSeasons.Palette(seasonNow) : palNow), "the season's own scene (fall = forest, winter = snowy peaks, spring = waterfall, summer = ocean sunset) — the default", () => lkPreview(t => t.Scene = "MATCH"), () => lkSceneClick("MATCH")));
+                    foreach (var sc0 in KeystoneScene.Names) { var sc = sc0; string nm = "✏ " + KeystoneScene.Label(sc).Substring(KeystoneScene.Label(sc).IndexOf(' ') + 1).ToLowerInvariant(); nm = "✏ " + char.ToUpperInvariant(nm[2]) + nm.Substring(3) + " (drawn)"; dr.Children.Add(lkTile(sc, nm, lkThumbScene(sc, cur.SeasonNow(ny) == "" ? KeystoneSeasons.Palette("") : palNow), KeystoneScene.Label(sc) + " — drawn in code in the season's colours • click it again = back to ✏ MATCH", () => lkPreview(t => t.Scene = sc), () => lkSceneClick(sc))); }
+                    dr.Children.Add(lkTile("NONE", "No scene", new Border { Background = Bg }, "only the season accent (or nothing when the season is OFF) • click it again = back to ✏ MATCH", () => lkPreview(t => t.Scene = "NONE"), () => lkSceneClick("NONE")));
                     sp.Children.Add(dr);
                     sp.Children.Add(sec("🖼 YOUR OWN PICTURE / VIDEO (" + lookDir + ")"));
                     var own = new WrapPanel();
-                    Action<string> useFile = f => { string k0 = KeystoneLookFiles.KindOf(f); if (k0 == "") { if (lkGalNote != null) lkGalNote.Text = KeystoneLookFiles.Problem(f); return; } lkChoose(t => { t.Scene = k0; t.File = f; }); };
+                    Action<string> useFile = f => { string k0 = KeystoneLookFiles.KindOf(f); if (k0 == "") { if (lkGalNote != null) lkGalNote.Text = KeystoneLookFiles.Problem(f); return; } lkChoose(t => { if (t.Scene == k0 && t.File == f) { t.Scene = "MATCH"; return; } t.Scene = k0; t.File = f; }); };   /* the chosen file again = back to ✏ MATCH */
                     own.Children.Add(lkChip("📷 PICK A PICTURE…", Blue, "a jpg / png / bmp from this PC (decoded once at the screen width)", null, () => { try { var dlg = new Microsoft.Win32.OpenFileDialog { Filter = "Pictures (*.jpg;*.jpeg;*.png;*.bmp)|*.jpg;*.jpeg;*.png;*.bmp", Title = "📷 MY PICTURE" }; if (dlg.ShowDialog() == true) useFile(dlg.FileName); } catch { } }));
-                    own.Children.Add(lkChip("🎞 PICK A VIDEO…", Blue, "a short looping mp4 / wmv — muted, paused when the window is minimized / not in front / while you drag the chart (📉 LOW POWER = its first frame)", null, () => { try { var dlg = new Microsoft.Win32.OpenFileDialog { Filter = "Videos (*.mp4;*.wmv)|*.mp4;*.wmv", Title = "🎞 MY VIDEO" }; if (dlg.ShowDialog() == true) useFile(dlg.FileName); } catch { } }));
+                    own.Children.Add(lkChip("🎞 PICK A VIDEO…", Blue, "a short looping mp4 / wmv — muted, paused when the window is minimized / not in front / while you drag the chart (📉 LOW POWER = its first frame); around the chart only, never behind the candles", null, () => { try { var dlg = new Microsoft.Win32.OpenFileDialog { Filter = "Videos (*.mp4;*.wmv)|*.mp4;*.wmv", Title = "🎞 MY VIDEO" }; if (dlg.ShowDialog() == true) useFile(dlg.FileName); } catch { } }));
                     own.Children.Add(lkChip("📂 OPEN THE FOLDER", Card, "drop your own pictures / videos here — they appear below", null, () => { try { System.Diagnostics.Process.Start(lookDir); } catch { } }));
                     foreach (var f0 in KeystoneLookFiles.List(lookDir).Where(f => !Path.GetFileName(f).StartsWith("keystone-", StringComparison.OrdinalIgnoreCase)).Take(12))
-                    { var f = f0; string k0 = KeystoneLookFiles.KindOf(f); own.Children.Add(lkChip((k0 == "VIDEO" ? "🎞 " : "📷 ") + Path.GetFileName(f), Card, f, () => lkPreview(t => { t.Scene = k0; t.File = f; }), () => useFile(f))); }
+                    { var f = f0; string k0 = KeystoneLookFiles.KindOf(f); own.Children.Add(lkOpt("FILE:" + Path.GetFileName(f), () => (k0 == "VIDEO" ? "🎞 " : "📷 ") + Path.GetFileName(f), () => C().Scene == k0 && C().File == f, false, Card, f + "\nclick it again = back to ✏ MATCH", () => lkPreview(t => { t.Scene = k0; t.File = f; }), () => useFile(f))); }
                     sp.Children.Add(own);
-                    sp.Children.Add(sec("✨ ANIMATION (header band only — ≤ 30 fps, ≤ 150 particles, paused when minimized / not in front / while you drag)"));
+                    sp.Children.Add(sec("✨ ANIMATION (the title band — ≤ 30 fps, ≤ 150 particles, paused when minimized / not in front / while you drag) • click the chosen one again = OFF"));
                     var ar = new WrapPanel();
-                    foreach (var a0 in KeystoneLookSettings.AnimModes) { var a = a0; string lab = a == "OFF" ? "OFF" : a == "MATCH" ? "MATCH THE SCENE / SEASON" : KeystoneParticles.Label(a); ar.Children.Add(lkChip((cur.Anim == a ? "✓ " : "") + lab, a == "OFF" ? Card : Cyan, "light particles in the title band only — never over the chart", () => lkPreview(t => t.Anim = a), () => lkChoose(t => t.Anim = a))); }
-                    ar.Children.Add(lkChip((cur.Reduce ? "☑" : "☐") + " 🕊 REDUCE MOTION", Card, "half the particles, half the speed, 15 fps", null, () => lkChoose(t => t.Reduce = !t.Reduce)));
-                    ar.Children.Add(lkChip((cur.LowPower ? "☑" : "☐") + " 📉 LOW POWER", Card, "a video shows its first frame only (no decoding)", null, () => lkChoose(t => t.LowPower = !t.LowPower)));
+                    foreach (var a0 in KeystoneLookSettings.AnimModes) { var a = a0; string lab = a == "OFF" ? "OFF" : a == "MATCH" ? "MATCH THE SCENE / SEASON" : KeystoneParticles.Label(a); ar.Children.Add(lkOpt("ANIM:" + a, () => lab, () => C().Anim == a, false, a == "OFF" ? Card : Cyan, "light particles in the title band (behind the candles too only when ticked below) — never over the chart", () => lkPreview(t => t.Anim = a), () => lkChoose(t => t.Anim = KeystoneLookSettings.Toggle("ANIM", t.Anim, a)))); }
+                    ar.Children.Add(lkOpt("ANIMBEHIND", () => "✨ ALSO BEHIND THE CANDLES (faint, ≤ 25 %)", () => C().AnimBehind, true, Card, "the same particles drawn faintly under the candles of every chart (the 150-particle budget shared by the charts), paused while you drag — off by default", null, () => lkChoose(t => t.AnimBehind = !t.AnimBehind)));
+                    ar.Children.Add(lkOpt("REDUCE", () => "🕊 REDUCE MOTION", () => C().Reduce, true, Card, "half the particles, half the speed, 15 fps", null, () => lkChoose(t => t.Reduce = !t.Reduce)));
+                    ar.Children.Add(lkOpt("LOWPOWER", () => "📉 LOW POWER", () => C().LowPower, true, Card, "a video shows its first frame only (no decoding)", null, () => lkChoose(t => t.LowPower = !t.LowPower)));
                     sp.Children.Add(ar);
                     sp.Children.Add(sec("📐 PLACEMENT"));
                     var pl = new WrapPanel();
-                    pl.Children.Add(lkChip((cur.Place == "AROUND" ? "✓ " : "") + "AROUND THE CHART (title band + window frame)", Card, "the default: never over the candles", () => lkPreview(t => t.Place = "AROUND"), () => lkChoose(t => t.Place = "AROUND")));
-                    pl.Children.Add(lkChip((cur.Place == "FAINT" ? "✓ " : "") + "FAINT BEHIND THE CHART (5 %)", Card, "a still 5 % veil of the scene / picture over the plot — never animated, never a video, the mouse goes through it", () => lkPreview(t => t.Place = "FAINT"), () => lkChoose(t => t.Place = "FAINT")));
+                    pl.Children.Add(lkOpt("PLACE:AROUND", () => "AROUND THE CHART (title band + window frame)", () => C().Place == "AROUND", false, Card, "the default: the picture / scene around the panels, the plot keeps its plain background", () => lkPreview(t => t.Place = "AROUND"), () => lkChoose(t => t.Place = "AROUND")));
+                    pl.Children.Add(lkOpt("PLACE:BEHIND", () => "🖼 BEHIND THE CHART (under the candles)", () => C().Place == "BEHIND", false, Card, "the picture / drawn scene fills each chart's background UNDER the candles at the opacity below; a scrim in the template's own colour keeps the background as dark (or light) as the template — candles, lines and labels are drawn above it, untouched; the mouse goes through it; never a video", () => lkPreview(t => t.Place = "BEHIND"), () => lkChoose(t => t.Place = "BEHIND")));
                     sp.Children.Add(pl);
-                    sp.Children.Add(sec("💬 HEADER LINE (one line, read-only)"));
+                    {
+                        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 4) };
+                        lkSliderText = new TextBlock { Text = "OPACITY " + KeystoneLookSettings.ClampPct(cur.BehindPct) + " %", Foreground = Text, FontSize = 11.5, FontWeight = FontWeights.SemiBold, Width = 104, VerticalAlignment = VerticalAlignment.Center, Tag = "look.opacity.text" };
+                        lkSlider = new Slider { Minimum = KeystoneLookSettings.BehindMin, Maximum = KeystoneLookSettings.BehindMax, Value = KeystoneLookSettings.ClampPct(cur.BehindPct), Width = 260, TickFrequency = 1, IsSnapToTickEnabled = true, SmallChange = 1, LargeChange = 5, VerticalAlignment = VerticalAlignment.Center, Tag = "look.opacity", ToolTip = "BEHIND THE CHART: how strong the picture is (5–40 %, 18 % by default) — the contrast guard adds a scrim when a bright picture would lift the background" };
+                        var sl0 = lkSlider; sl0.ValueChanged += (s0, e0) => { if (!lkSliderBusy) lkSetPct((int)Math.Round(sl0.Value)); };
+                        row.Children.Add(lkSliderText); row.Children.Add(lkSlider); row.Children.Add(new TextBlock { Text = "  behind the chart only • 18 % = the default", Foreground = Muted, FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center });
+                        sp.Children.Add(row);
+                    }
+                    sp.Children.Add(sec("💬 HEADER LINE (one line, read-only) • click the chosen one again = back to QUOTES + REMINDERS"));
                     var qr = new WrapPanel();
-                    foreach (var q0 in KeystoneLookSettings.QuoteModes) { var q = q0; string lab = q == "BOTH" ? "QUOTES + REMINDERS" : q == "REMINDERS" ? "REMINDERS ONLY" : q == "QUOTES" ? "QUOTES ONLY" : "OFF"; qr.Children.Add(lkChip((cur.Quotes == q ? "✓ " : "") + lab, Card, "reminders first: a lock, the floor close, the day loss, the 16:54 NY close; then a season quote every 3 h", () => lkPreview(t => t.Quotes = q), () => lkChoose(t => t.Quotes = q))); }
+                    foreach (var q0 in KeystoneLookSettings.QuoteModes) { var q = q0; string lab = q == "BOTH" ? "QUOTES + REMINDERS" : q == "REMINDERS" ? "REMINDERS ONLY" : q == "QUOTES" ? "QUOTES ONLY" : "OFF"; qr.Children.Add(lkOpt("QUOTES:" + q, () => lab, () => C().Quotes == q, false, Card, "reminders first: a lock, the floor close, the day loss, the 16:54 NY close; then a season quote every 3 h", () => lkPreview(t => t.Quotes = q), () => lkChoose(t => t.Quotes = KeystoneLookSettings.Toggle("QUOTES", t.Quotes, q)))); }
                     if (cur.QuotesHiddenOn(ny)) qr.Children.Add(lkChip("↺ show today's quotes again", Card, "you hid them with ✕", null, () => lkChoose(t => t.HideDay = "")));
                     sp.Children.Add(qr);
                     var phc = cur.Photo; if (phc != null) sp.Children.Add(new TextBlock { Text = phc.Name + " • " + phc.Credit, Foreground = Muted, FontSize = 10, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap });
-                    lkGallery.Child = new ScrollViewer { Content = sp, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+                    // 13l: the SAME ScrollViewer keeps its place — a rebuild (a downloaded thumbnail) never jumps back to the top
+                    double off = lkScroll != null ? lkScroll.VerticalOffset : 0;
+                    if (lkScroll == null) { lkScroll = new System.Windows.Controls.ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Tag = "look.scroll" }; lkGallery.Child = lkScroll; }
+                    lkScroll.Content = sp; if (off > 0) { var sv0 = lkScroll; sv0.ScrollToVerticalOffset(off); try { w.Dispatcher.BeginInvoke(new Action(() => { try { sv0.ScrollToVerticalOffset(off); } catch { } }), DispatcherPriority.Loaded); } catch { } }
+                    lkGalRefresh();
                 };
                 lookOpenH = delegate
                 {
@@ -56534,7 +56771,31 @@ namespace NinjaTrader.NinjaScript.AddOns
                     else if (cu == "OPEN") lookOpenH();
                     else if (cu.StartsWith("HOVER ")) { var id = c.Substring(6).Trim(); if (lkTiles.ContainsKey(id)) lkPreview(t => t.Scene = id); else return "no tile " + id; }
                     else if (cu == "LEAVE") lkUnpreview();
-                    else if (cu.StartsWith("CLICK ")) { var id = c.Substring(6).Trim(); if (!lkTiles.ContainsKey(id)) return "no tile " + id; lkChoose(t => t.Scene = id); }   /* a photo not saved yet stays on its drawn fallback (the test never downloads) */
+                    else if (cu.StartsWith("CLICK ")) { var id = c.Substring(6).Trim(); if (!lkTiles.ContainsKey(id)) return "no tile " + id; var ph0 = id.StartsWith("PHOTO:") ? KeystoneLookCatalog.Find(id.Substring(6)) : null; if (ph0 != null && (lkChosen ?? look).Scene != id && !File.Exists(KeystoneLookCatalog.CacheFile(lookDir, ph0))) lkChoose(t => t.Scene = id); else lkTileClick[id](); }   /* the tile's own click (toggle); a photo not saved yet stays on its drawn fallback (the test never downloads) */
+                    else if (cu.StartsWith("PRESS ")) { var id = c.Substring(6).Trim(); Action a0; if (!lkChips.TryGetValue(id, out a0)) return "no chip " + id + " (" + string.Join(",", lkChips.Keys) + ")"; a0(); }
+                    else if (cu.StartsWith("CHIPTEXT ")) { TextBlock t0; return lkChipText.TryGetValue(c.Substring(9).Trim(), out t0) ? t0.Text : "no chip"; }
+                    else if (cu.StartsWith("SCROLL ")) { if (lkScroll != null) lkScroll.ScrollToVerticalOffset(ParseStudioInt(c.Substring(7), 0)); }
+                    else if (cu == "GAL") return "builds=" + lkGalBuilds + ";refreshes=" + lkGalRefreshes + ";offset=" + (lkScroll != null ? lkScroll.VerticalOffset : -1).ToString("0", CultureInfo.InvariantCulture) + ";sv=" + (lkScroll != null && ReferenceEquals(lkGallery.Child, lkScroll) ? lkScroll.GetHashCode() : 0) + ";tile=" + string.Join(",", lkTiles.Where(kv => Equals(kv.Value.BorderBrush, Gold)).Select(kv => kv.Key));
+                    else if (cu.StartsWith("OPACITY ")) { if (lkSlider == null) return "no slider"; lkSlider.Value = ParseStudioInt(c.Substring(8), 18); lkSetPct((int)Math.Round(lkSlider.Value)); }
+                    else if (cu == "BEHIND")
+                    {   /* the behind layers: visible, under the canvas, the canvas transparent, opacity, scrim, effective vs template luminance, particles */
+                        return string.Join("|", lookBehinds.Select(lb => { var par = lb.Host.Parent as Grid; int ih = par != null ? par.Children.IndexOf(lb.Host) : -1, ic = par != null ? par.Children.IndexOf(lb.Plot) : -1;
+                            return "vis=" + (lb.Host.Visibility == Visibility.Visible ? 1 : 0) + ";under=" + (ih >= 0 && ih < ic ? 1 : 0) + ";hit=" + (lb.Host.IsHitTestVisible || lb.Inner.IsHitTestVisible || lb.Photo.IsHitTestVisible || lb.Scrim.IsHitTestVisible || lb.Fx.IsHitTestVisible || lb.Scene.IsHitTestVisible ? 1 : 0) + ";cvclear=" + (ReferenceEquals(lb.Plot.Background, System.Windows.Media.Brushes.Transparent) ? 1 : 0)
+                                + ";photo=" + (lb.Photo.Visibility == Visibility.Visible ? 1 : 0) + ";scene=" + (lb.Scene.Visibility == Visibility.Visible ? 1 : 0) + ";op=" + Math.Max(lb.Photo.Opacity, 0).ToString("0.00", CultureInfo.InvariantCulture) + ";scrim=" + lb.ScrimNow.ToString("0.00", CultureInfo.InvariantCulture) + ";bglum=" + lb.BgLum.ToString("0.000", CultureInfo.InvariantCulture) + ";efflum=" + lb.EffLum.ToString("0.000", CultureInfo.InvariantCulture)
+                                + ";fx=" + (lb.FxOn ? 1 : 0) + ";fxn=" + lb.Fx.Sim.N + ";fxop=" + lb.Fx.Opacity.ToString("0.00", CultureInfo.InvariantCulture) + ";frozen=" + (lb.Photo.Background == null || lb.Photo.Background.IsFrozen ? 1 : 0) + ";cache=" + (lb.Photo.CacheMode is BitmapCache ? 1 : 0) + ";paints=" + lb.Paints; })) + ";renders=" + lkBehindRenders + ";lum=" + lookBehindLum.ToString("0.000", CultureInfo.InvariantCulture);
+                    }
+                    else if (cu.StartsWith("BENCHB "))
+                    {   /* ms per frame of the behind particles: step + every visible plot's drawing list */
+                        int n0 = ParseStudioInt(c.Substring(7), 300); var sw0 = System.Diagnostics.Stopwatch.StartNew();
+                        for (int i = 0; i < n0; i++) foreach (var lb in lookBehinds) if (lb.FxOn) { lb.Fx.Sim.Step(1 / 30.0); var dc0 = new System.Windows.Media.DrawingGroup().Open(); lb.Fx.RenderTo(dc0); dc0.Close(); }
+                        return (sw0.Elapsed.TotalMilliseconds / Math.Max(1, n0)).ToString("0.0000", CultureInfo.InvariantCulture);
+                    }
+                    else if (cu == "TOOLBAR") return lookToolBtns.Count + ";" + string.Join(",", lookToolBtns.Select(b0 => Convert.ToString(b0.Content)));
+                    else if (cu == "MENU")
+                    {   /* the 🎨 template menu: its FIRST item is 🎨 LOOK */
+                        if (lookTmplBtns.Count == 0) return "no template button"; lookTmplBtns[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); var m0 = lookLastMenu; if (m0 == null || m0.Items.Count == 0) return "no menu";
+                        var f0 = m0.Items[0] as MenuItem; string r0 = f0 != null ? Convert.ToString(f0.Tag) + "|" + Convert.ToString(f0.Header) : "first=" + m0.Items[0]; try { m0.IsOpen = false; } catch { } return r0;
+                    }
                     else if (cu == "KEEP") lkClose(true);
                     else if (cu == "BACK") lkClose(false);
                     else if (cu.StartsWith("TICKS ")) { int n0 = ParseStudioInt(c.Substring(6), 1); for (int i = 0; i < n0; i++) { lkLast = lkClock.Elapsed.TotalSeconds - 1 / 30.0; if (lkTimer.IsEnabled) lkStep(); } }
@@ -56545,8 +56806,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                     else if (cu.StartsWith("FILE ")) { look.File = c.Substring(5).Trim(); look.Scene = KeystoneLookFiles.KindOf(look.File) == "" ? "PICTURE" : KeystoneLookFiles.KindOf(look.File); lookApply(); }
                     else if (cu == "LINE") return lkQuoteText.Text + "|" + (kw != null && kw.QuoteHost != null ? kw.QuoteHost.Visibility.ToString() : "");
                     else if (cu == "DIR") return lookDir;
-                    var vis = lookVeils.Count(v => v.Visibility == Visibility.Visible);
-                    return "season=" + lkSeason + ";scene=" + lkScene + ";file=" + lkFileKind + ";anim=" + lkAnim + ";n=" + lkFx.Sim.N + ";timer=" + (lkTimer.IsEnabled ? 1 : 0) + ";frames=" + lkFx.Frames + ";veils=" + vis + "/" + lookVeils.Count + ";place=" + look.Place + ";gallery=" + (lkGallery.Visibility == Visibility.Visible ? 1 : 0) + ";theme=" + themes[themeIndex].Name + ";note=" + lkNote + ";chosen=" + (lkChosen != null ? lkChosen.Scene : "") + ";look=" + look.Scene + ";builds=" + lkBandScene.Builds;
+                    var vis = lookBehinds.Count(v => v.Host.Visibility == Visibility.Visible);
+                    return "season=" + lkSeason + ";scene=" + lkScene + ";file=" + lkFileKind + ";anim=" + lkAnim + ";n=" + lkFx.Sim.N + ";timer=" + (lkTimer.IsEnabled ? 1 : 0) + ";frames=" + lkFx.Frames + ";behind=" + vis + "/" + lookBehinds.Count + ";pct=" + look.BehindPct + ";animbehind=" + (look.AnimBehind ? 1 : 0) + ";place=" + look.Place + ";chosenanim=" + (lkChosen != null ? lkChosen.Anim : "") + ";chosenplace=" + (lkChosen != null ? lkChosen.Place : "") + ";gallery=" + (lkGallery.Visibility == Visibility.Visible ? 1 : 0) + ";theme=" + themes[themeIndex].Name + ";note=" + lkNote + ";chosen=" + (lkChosen != null ? lkChosen.Scene : "") + ";look=" + look.Scene + ";builds=" + lkBandScene.Builds;
                 };
                 lookApply();
             }

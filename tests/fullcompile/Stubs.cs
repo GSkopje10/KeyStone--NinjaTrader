@@ -189,6 +189,8 @@ namespace System.Windows.Media.Effects { public class Effect { } public class Dr
 
 namespace System.Windows.Media
 {
+    public struct PixelFormat { public int BitsPerPixel { get { return 32; } } }
+    public static class PixelFormats { public static PixelFormat Bgra32 { get { return new PixelFormat(); } } public static PixelFormat Pbgra32 { get { return new PixelFormat(); } } }
     public enum EdgeMode { Unspecified, Aliased }
     public static class RenderOptions { public static void SetEdgeMode(System.Windows.DependencyObject o, EdgeMode m) { } }
     public struct Color
@@ -198,7 +200,7 @@ namespace System.Windows.Media
         public static Color FromArgb(byte a, byte r, byte g, byte b) { return new Color { A = a, R = r, G = g, B = b }; }
     }
     public static class Colors { public static Color Transparent { get { return new Color(); } } public static Color White { get { return new Color(); } } public static Color Black { get { return new Color(); } } }
-    public class Freezable : System.Windows.DependencyObject { public void Freeze() { } public bool IsFrozen { get { return false; } } public bool CanFreeze { get { return true; } } }
+    public class Freezable : System.Windows.DependencyObject { bool frozen13l; public void Freeze() { frozen13l = true; } public bool IsFrozen { get { return frozen13l; } } public bool CanFreeze { get { return true; } } }
     public abstract class Brush : Freezable { public double Opacity { get; set; } public Brush Clone() { return this; } }
     public class SolidColorBrush : Brush { public SolidColorBrush() { } public SolidColorBrush(Color c) { Color = c; } public Color Color { get; set; } public new SolidColorBrush Clone() { return this; } }
     public class GradientStop { public GradientStop() { } public GradientStop(Color c, double o) { } }
@@ -436,11 +438,11 @@ namespace System.Windows.Controls
     public class ScrollViewer : ContentControl
     {
         public ScrollBarVisibility VerticalScrollBarVisibility { get; set; } public ScrollBarVisibility HorizontalScrollBarVisibility { get; set; }
-        public double VerticalOffset { get { return 0; } } public double HorizontalOffset { get { return 0; } }
+        double vOff; public double VerticalOffset { get { return vOff; } } public double HorizontalOffset { get { return 0; } }   /* 13l: the offset is kept so the gallery's "no jump to the top" can be tested */
         public double ExtentHeight { get { return 0; } } public double ExtentWidth { get { return 0; } } public double ViewportHeight { get { return 0; } } public double ViewportWidth { get { return 0; } }
         public double ScrollableHeight { get { return 0; } } public double ScrollableWidth { get { return 0; } }
         public bool CanContentScroll { get; set; }
-        public void ScrollToVerticalOffset(double o) { } public void ScrollToHorizontalOffset(double o) { } public void ScrollToTop() { } public void ScrollToBottom() { } public void ScrollToHome() { } public void ScrollToEnd() { } public void LineUp() { } public void LineDown() { } public void PageUp() { } public void PageDown() { }
+        public void ScrollToVerticalOffset(double o) { vOff = Math.Max(0, o); } public void ScrollToHorizontalOffset(double o) { } public void ScrollToTop() { vOff = 0; } public void ScrollToBottom() { } public void ScrollToHome() { } public void ScrollToEnd() { } public void LineUp() { } public void LineDown() { } public void PageUp() { } public void PageDown() { }
         public event ScrollChangedEventHandler ScrollChanged;
         public static void SetVerticalScrollBarVisibility(DependencyObject d, ScrollBarVisibility v) { } public static void SetHorizontalScrollBarVisibility(DependencyObject d, ScrollBarVisibility v) { }
         public static void SetCanContentScroll(DependencyObject d, bool v) { }
@@ -570,7 +572,15 @@ namespace System.Windows.Media.Imaging
 {
     public enum BitmapCacheOption { Default, OnDemand, OnLoad, None }
     [Flags] public enum BitmapCreateOptions { None = 0, PreservePixelFormat = 1, DelayCreation = 2, IgnoreColorProfile = 4, IgnoreImageCache = 8 }
-    public class BitmapSource : System.Windows.Media.ImageSource { public double Width { get { return 1600; } } public double Height { get { return 900; } } public int PixelWidth { get { return 1600; } } public int PixelHeight { get { return 900; } } }
+    public class BitmapSource : System.Windows.Media.ImageSource { public double Width { get { return 1600; } } public double Height { get { return 900; } } public virtual int PixelWidth { get { return 1600; } } public virtual int PixelHeight { get { return 900; } } public virtual void CopyPixels(Array pixels, int stride, int offset) { } public System.Windows.Media.PixelFormat Format { get { return System.Windows.Media.PixelFormats.Bgra32; } } }
+    public class BitmapPalette { }
+    public class FormatConvertedBitmap : BitmapSource
+    {   /* 13l stand-in: the converted copy of a picture; CopyPixels fills a mid grey (luma ≈ 0.5) so the contrast guard has something to measure */
+        readonly BitmapSource src; public FormatConvertedBitmap() { } public FormatConvertedBitmap(BitmapSource source, System.Windows.Media.PixelFormat destinationFormat, BitmapPalette destinationPalette, double alphaThreshold) { src = source; }
+        public override int PixelWidth { get { return 64; } } public override int PixelHeight { get { return 36; } }
+        public override void CopyPixels(Array pixels, int stride, int offset) { var b = pixels as byte[]; if (b != null) for (int i = 0; i < b.Length; i++) b[i] = 128; }
+        public void Freeze() { }
+    }
     public class BitmapImage : BitmapSource
     {
         public void BeginInit() { } public void EndInit() { if (UriSource != null && UriSource.IsFile && !System.IO.File.Exists(UriSource.LocalPath)) throw new System.IO.FileNotFoundException(UriSource.LocalPath); }
