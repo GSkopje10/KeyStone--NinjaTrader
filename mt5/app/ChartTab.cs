@@ -1231,7 +1231,7 @@ namespace KeystoneMT5
             if (on)
             {
             }
-            if (!on) { try { StepInGate.Revoke(HedgeAuto.AccKeyOf(broker)); if (!Virtual && auto != null && auto.Running && auto.Set != null && auto.Set.StepIn) auto.Stop("🔒 DISARMED — 🚑 STEP IN needs the typed STEP IN again (positions stay)"); } catch { } }   // 🚑 09n: DISARM ends the session's confirmation
+            if (!on) { try { ConsultGate.Revoke(HedgeAuto.AccKeyOf(broker)); } catch { } try { StepInGate.Revoke(HedgeAuto.AccKeyOf(broker)); if (!Virtual && auto != null && auto.Running && auto.Set != null && auto.Set.StepIn) auto.Stop("🔒 DISARMED — 🚑 STEP IN needs the typed STEP IN again (positions stay)"); } catch { } }   // 🚑 09n: DISARM ends the session's confirmation
             armed = on; Toast(on ? "🟢 ARMED with one click — BUY / SELL now go to MT5 at once (DISARM to stop)" : "🔒 DISARMED" + (why != null ? " — " + why : ""));
         }
         bool Ask(string msg) { return Sx.Ask(this, "SpasiX", msg); }

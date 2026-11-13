@@ -86,6 +86,8 @@ namespace KeystoneMT5
             // YOUR MT5 ACCOUNTS: every terminal with the SpasiXBridge (same port) — each opens as its own LIVE / PROP tab
             var ab = new DockPanel { Margin = new Thickness(10, 0, 10, 8) }; Grid.SetRow(ab, 2); g.Children.Add(ab);
             var kill = Sx.Pill("⛔ CLOSE ALL • every armed account", Sx.Tint(Sx.Red, 200)); kill.Foreground = Sx.White; kill.Height = 34; kill.VerticalAlignment = VerticalAlignment.Top; kill.ToolTip = "every MT5 account whose tab is ARMED: its positions close at the market, its 🤖 AUTO stops (asks first)"; kill.Click += delegate { CloseEverything(); }; DockPanel.SetDock(kill, Dock.Right); ab.Children.Add(kill);
+            var dsh = Sx.Pill("📥 DATA STUDIO • download / manage history", Sx.Tint(Sx.Cyan, 70)); dsh.Foreground = Sx.Cyan; dsh.Height = 34; dsh.Margin = new Thickness(0, 0, 10, 0); dsh.VerticalAlignment = VerticalAlignment.Top; dsh.ToolTip = "MT5's 1-minute candles and REAL ticks for the BACKTEST, the post-mortems and the 🧭 CONSULT: ranges, resumable, what is on this PC, delete, 📦 export for Claude — it never sends an order";
+            dsh.Click += delegate { DataStudioWindow.Open(this, Shell.Bridge); }; DockPanel.SetDock(dsh, Dock.Right); ab.Children.Add(dsh);
             var al = new StackPanel(); al.Children.Add(new TextBlock { Text = "YOUR MT5 ACCOUNTS", Foreground = Sx.Gold, FontSize = 11, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) });
             accts = new WrapPanel(); al.Children.Add(accts); ab.Children.Add(al);
             var foot = new DockPanel { Margin = new Thickness(4, 4, 4, 0) }; Grid.SetRow(foot, 3); g.Children.Add(foot);
@@ -235,7 +237,7 @@ namespace KeystoneMT5
                 // every other MT5 account that connects (same port, its own terminal) gets its own tab
                 bridge.Hub.Added += l => app.Dispatcher.BeginInvoke(new Action(() => Shell.AccountAdded(l)));
                 foreach (var l in bridge.Hub.Links) if (l != bridge) Shell.AccountAdded(l);   // the ones that connected while SpasiX was starting
-                if (direct == "LIVE" || direct == "PROP" || direct == "DEMO" || direct == "BACKTEST") { Shell.Switch(Shell.Home); Shell.Open(direct); } else Shell.ShowHome();
+                if (direct == "LIVE" || direct == "PROP" || direct == "DEMO" || direct == "BACKTEST") { Shell.Switch(Shell.Home); Shell.Open(direct); } else if (direct == "DATA") { Shell.ShowHome(); DataStudioWindow.Open(Shell.Home, bridge); } else Shell.ShowHome();
                 // ⟳ the windows whose automation was running reopen as their account connects (checked for 10 minutes)
                 var rs = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) }; var rs0 = DateTime.Now;
                 rs.Tick += delegate { try { foreach (var l in bridge.Hub.Links.ToList()) Shell.ResumeRunning(l); } catch { } if ((DateTime.Now - rs0).TotalMinutes > 10) rs.Stop(); }; rs.Start();

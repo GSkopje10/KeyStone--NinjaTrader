@@ -53,6 +53,7 @@ namespace KeystoneMT5
             auto.RadarBars = sym => Sim ? null : AutoCandles(sym, DateTime.Now.AddDays(-8));
             auto.RadarMine = () => AutoRadarMine();
             auto.OnRadar += r => Dispatcher.BeginInvoke(new Action(() => AutoRadarShow(r)));
+            ConsultSetup();   // 🧭 09r: the HISTORY CONSULT (its memory per account, the decisions measured after the basket closes)
             // 🎯 TOTAL EXIT GUARD (09f): close-only, through the armed link like every close; no question (the user's rule), a loud toast instead
             auto.GuardClose = sym => (Virtual || armed) ? broker.Command("CLOSEALL", sym, "ALL") : null;
             // 🛡 PROTECT THE ADD (09h): while the automation is stopped it still locks / resumes — through AutoSend (MT5 CanTrade + ARM + PROP limits); on an MT5 account only when ticked ON
@@ -323,6 +324,17 @@ namespace KeystoneMT5
                 var sn2 = new TextBlock { Text = Virtual ? StepInGate.SimNote : StepInGate.LiveNote, Foreground = Virtual ? Amber : Red, FontSize = 11.5, FontWeight = Virtual ? FontWeights.Normal : FontWeights.Bold, TextWrapping = TextWrapping.Wrap, MaxWidth = 900, Margin = new Thickness(0, 2, 12, 6), VerticalAlignment = VerticalAlignment.Center };
                 afBox["sinote"] = sn2; simple.Children.Add(sn2);
             }
+            {   // 🧭 09r HISTORY CONSULT (Consult.cs / ConsultTab.cs) + 💸 the WITHDRAWAL PLAN statistic (Withdraw.cs)
+                var cm = ADrop("cns", "🧭 CONSULT MODE", () => ConsultModeText(aset), ConsultModeItems);
+                cm.ToolTip = "🧭 HISTORY CONSULT: at each hedge decision the basket is compared with the similar past decisions (your real-tick history first; the 6-year library only as an " + ConsultSrc.LibLabel + ") — hedge now / wait for the swing / lock / add with the trend / close now, with honest numbers. ADVISE never sends anything; it acts only on a CLEAR answer and only where you allow it.";
+                simple.Children.Add(cm);
+                simple.Children.Add(AField("wds", "💸 PLAN START $", aset.WdStart.ToString(IC), 70, "💸 the withdrawal plan (a statistic): the account starts at this $; a blow-up = a new deposit of it"));
+                simple.Children.Add(ADrop("wdp", "💸 WITHDRAW AT", () => "+" + aset.WdAtPct.ToString("0", IC) + " % (" + WithdrawPlan.Usd(WithdrawPlan.LevelOf(aset.WdStart, aset.WdAtPct)) + ")", () => new List<Mi> {
+                    new Mi { Text = "+100 % — at double the start, withdraw back to the start (the user's plan)", Do = () => aset.WdAtPct = 100 },
+                    new Mi { Text = "+50 % — at 1.5 × the start, withdraw back to the start", Do = () => aset.WdAtPct = 50 } }));
+            var cbt = Pill("🧭 BUILD FROM MY TICKS", Tint(Sx.Card2, 220)); cbt.Height = 30; cbt.ToolTip = "🧭 CONSULT: replay YOUR settings + the alternatives on the real XAUUSD ticks you downloaded (🧪 BACKTEST ▸ ⬇ DOWNLOAD REAL TICKS) — those decisions outrank the 6-year library (an " + ConsultSrc.LibLabel + "). Simulated only, in the background."; cbt.Click += delegate { ConsultBuildFromTicks(); }; simple.Children.Add(ALabeled("🧭 YOUR REAL TICKS", cbt));
+            if (Paper) { var wdb = Pill("💸 WITHDRAW", Tint(Sx.Card2, 220)); wdb.Height = 30; wdb.ToolTip = "💸 the withdrawal plan (simulated DEMO): when the balance reached the plan's level, withdraw back to the start — asks first"; wdb.Click += delegate { WithdrawBook(); }; simple.Children.Add(ALabeled("💸 DEMO", wdb)); }
+            }
             simple.Children.Add(aPresetNote = new TextBlock { Text = "the tested default is set: 🛡 DEFENDER • break entries • 🔐 breakeven lock • 🛡 RISK GUARD (⭐ 13p) • ⏰ no new trades 45 min before the close — RISK sets lots + target from your balance (or type your own) • every other setting is under ⚙ ADVANCED", Foreground = Muted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 720, Margin = new Thickness(10, 14, 0, 0) });
             aSettings.Children.Add(simple);
             {   // ⏰ 9:30 STRADDLE: its own row (only with that strategy)
@@ -497,7 +509,7 @@ namespace KeystoneMT5
             // the numbers, the views
             aTiles = new ContentControl { Margin = new Thickness(0, 0, 0, 6) }; DockPanel.SetDock(aTiles, Dock.Top); root.Children.Add(aTiles);
             aViews = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) }; DockPanel.SetDock(aViews, Dock.Top);
-            foreach (var v in new[] { "STORY", "ITERATIONS", "TRADES", "ANALYSIS", "LEARN", "🧠 AI", "LOG", "🗂 TESTS" }) { var vv = v; var b = Pill(v, Tint(Sx.Card2, 220)); b.Height = 26; b.Click += delegate { aView = vv; AutoPaint(true); aTable.ScrollToHome(); }; aViews.Children.Add(b); }
+            foreach (var v in new[] { "STORY", "ITERATIONS", "TRADES", "ANALYSIS", "LEARN", "🧭 CONSULT", "🧠 AI", "LOG", "🗂 TESTS" }) { var vv = v; var b = Pill(v, Tint(Sx.Card2, 220)); b.Height = 26; b.Click += delegate { aView = vv; AutoPaint(true); aTable.ScrollToHome(); }; aViews.Children.Add(b); }
             aSetBtn = Pill("⚙ 1 · SETTINGS — SET UP FIRST", Tint(Gold, 200)); aSetBtn.Foreground = Bg; aSetBtn.Height = 26; aSetBtn.ToolTip = "step 1: the strategy's settings (they lock while it runs) — then ▶ START"; aSetBtn.Click += delegate { aView = "⚙ SETTINGS"; AutoPaint(true); }; aViews.Children.Insert(0, aSetBtn);   // user's request: the first tab, an obvious colour
             var raceBtn = Pill("🏁 RACE", Tint(Sx.Card2, 220)); raceBtn.Height = 26; raceBtn.ToolTip = "every strategy at once in the background, each on its own simulated account — the leaderboard of the day and the history"; raceBtn.Click += delegate { aView = "🏁 RACE"; AutoPaint(true); RacePaint(); }; aViews.Children.Add(raceBtn);
             aGuideBtn = Pill("🎯 CHART GUIDES", Tint(Sx.Card2, 220)); aGuideBtn.Height = 26; aGuideBtn.ToolTip = "draw what the strategy watches on the 📈 CHART (VWAP, the 20-candle high / low, the FVG zone, the hedge box, the next hedge) — a STRONG setup blinks"; aGuideBtn.Click += delegate { aGuidesOn = !aGuidesOn; Put("auto.guides", aGuidesOn ? "1" : "0"); AutoPaint(true); }; aViews.Children.Add(aGuideBtn);
@@ -527,7 +539,7 @@ namespace KeystoneMT5
             aResumeAt = DateTime.Now; aResumePending = !Sim && AutoWasRunning();
             raceResumeAt = DateTime.Now; raceResumePending = !Sim && Get("race.run", "0") == "1";
             aTimer.Tick += delegate {  int curN = auto.Running && auto.Current != null ? auto.Current.N : 0; if (curN != 0 && curN != aSeenIter) { aSeenIter = curN; if (raceShow != "") { raceShow = ""; if (raceShowBox != null) raceShowBox.SelectedIndex = 0; raceChipsSig = ""; } }   // your automation opened an iteration: the chart goes back to 🤖 MINE
-                if (aResumePending) AutoTryResume(); if (raceResumePending) RaceTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (Paper && !aHedgedAsked) AutoDemoHedgedMargin(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } try { auto.GuardStep(broker, aset); } catch { } try { auto.ProtectStep(broker, aset); } catch { } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); try { AutoRecovery(); } catch { } try { AiTriggers(); AiPaint(); } catch { } AutoLayoutProbe(); if (!Sim && (DateTime.Now - aWiAt).TotalSeconds >= 60) { aWiAt = DateTime.Now; AutoWhatIfRun(); } if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
+                if (aResumePending) AutoTryResume(); if (raceResumePending) RaceTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (Paper && !aHedgedAsked) AutoDemoHedgedMargin(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } try { auto.GuardStep(broker, aset); } catch { } try { auto.ProtectStep(broker, aset); } catch { } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); try { AutoRecovery(); } catch { } try { AiTriggers(); AiPaint(); } catch { } AutoLayoutProbe(); if (!Sim && (DateTime.Now - aWiAt).TotalSeconds >= 60) { aWiAt = DateTime.Now; AutoWhatIfRun(); } if ((DateTime.Now - aCmAt).TotalSeconds >= 60) { aCmAt = DateTime.Now; try { AutoConsultRun(); } catch { } } if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
             aTimer.Start();
             Closed += delegate { aTimer.Stop(); if (auto.Running) auto.Stop("the window closed"); if (Sim) sim.OnTickHook = null; };
             AutoVis(); AutoPaint(true);
@@ -550,6 +562,10 @@ namespace KeystoneMT5
             var sp = new StackPanel { Margin = new Thickness(0, 0, 12, 4) };
             sp.Children.Add(new TextBlock { Text = label, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 2) });
             var tb = Sx.Input(val, w); if (tip != "") tb.ToolTip = tip; af[key] = tb; sp.Children.Add(tb); afBox[key] = sp; return sp;
+        }
+        FrameworkElement ALabeled(string label, FrameworkElement el)
+        {   // 09r: a button under a small label, like the settings' boxes
+            var sp = new StackPanel { Margin = new Thickness(0, 0, 12, 4) }; sp.Children.Add(new TextBlock { Text = label, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 2) }); sp.Children.Add(el); return sp;
         }
         FrameworkElement ADrop(string key, string label, Func<string> now, Func<List<Mi>> items)
         {
@@ -657,7 +673,7 @@ namespace KeystoneMT5
             string why = siBlown && !broke ? "🚑 STEP IN blew the account (a stop-out), balance $" + bal.ToString("N2", IC) : broke ? auto.StopReason : "the balance $" + bal.ToString("N2", IC) + " is under 10 % of the start $" + start.ToString("N0", IC);
             try { var f = System.IO.Path.Combine(Dir, "auto", "blowups-" + string.Concat(AKey.Where(c => !System.IO.Path.GetInvalidFileNameChars().Contains(c))) + ".csv"); System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(f)); if (!System.IO.File.Exists(f)) System.IO.File.WriteAllText(f, "time,blowup,balance,equity,iterations_done,why,stepin,x_at_trigger,worst,stacks,outcome\n"); System.IO.File.AppendAllText(f, now.ToString("yyyy-MM-dd HH:mm:ss", IC) + "," + life + "," + bal.ToString("0.00", IC) + "," + eq.ToString("0.00", IC) + "," + auto.Iterations.Count(x => x.Done) + ",\"" + why.Replace("\"", "'") + "\"," + StepInBlowCtx(auto) + "\n"); } catch { }
             if (auto.Running) auto.Stop("💥 blow-up: the DEMO restarts");
-            lock (broker.State.Gate) paper.Acct.SetBalance(start, now);
+            lock (broker.State.Gate) paper.Acct.SetBalance(start, now, WithdrawPlan.RestartComment);   // 💸 09r: counted as a deposit after a blow-up
             var s = (auto.Set ?? aset).Copy(); auto.Note("💥 BLOW-UP #" + life + " — " + why + " → the DEMO balance is back at $" + start.ToString("N0", IC) + " and the automation starts again by itself (every iteration and the blow-up are saved)");
             if (auto.Check(broker, s) == "") { auto.Start(broker, s, false); AutoResumeNote(); Put("auto.run." + AKey, "1"); aWasOn = true; }
             Toast("💥 blow-up #" + life + " — the DEMO restarted with $" + start.ToString("N0", IC)); AutoPaint(true);
@@ -1092,6 +1108,7 @@ namespace KeystoneMT5
             if (af.ContainsKey("six")) { s.StepInX = Math.Max(1, Math.Min(500, ANum("six", 8))); s.StepInUsd = Math.Max(0, ANum("siusd", 0)); s.StepInMin = (int)Math.Max(0, Math.Min(10000, ANum("simin", 120))); s.StepInRisk = Math.Max(1, Math.Min(100, ANum("sirisk", Virtual ? 100 : AutoSettings.StepInLiveRisk))); s.StepInFloor = Math.Max(0, ANum("sifloor", 0)); s.StepInTrimAtr = Math.Max(0.2, Math.Min(10, ANum("sitrim", 1))); s.StepInTrimPct = Math.Max(0, Math.Min(90, ANum("sitrimp", 33))); s.StepInTrailAtr = Math.Max(0.3, Math.Min(10, ANum("sitrail", 1.5))); }
             if (af.ContainsKey("swatr")) { s.SwMinAtr = Math.Max(0, Math.Min(10, ANum("swatr", 0.3))); s.SwMinTicks = Math.Max(0, Math.Min(100000, ANum("swtk", 0))); s.SwCool = (int)Math.Max(0, Math.Min(240, ANum("swcool", 3))); s.SwChop = (int)Math.Max(0, Math.Min(20, ANum("swchop", 2))); }
             if (af.ContainsKey("pcool")) { s.ProtectCool = (int)Math.Max(1, Math.Min(240, ANum("pcool", 15))); s.ProtectK = Math.Max(0.2, Math.Min(10, ANum("pk", 1))); }
+            if (af.ContainsKey("wds")) s.WdStart = Math.Max(100, ANum("wds", 5000));   // 💸 09r
             if (af.ContainsKey("rat")) { s.RadarAt = Math.Max(5, Math.Min(95, ANum("rat", 50))); s.RadarAlert = Math.Max(5, Math.Min(95, ANum("ralert", 35))); }
             s.WinnerLots = Math.Max(0, ANum("wlots", 0.1)); s.WinnerLotsSell = Math.Max(0, ANum("wlots2", 0.1)); s.SwingK = (int)Math.Max(1, ANum("swk", 2)); s.MaxWinnerAdds = (int)Math.Max(0, ANum("wmax", 0)); s.FlowVol = Math.Max(1, ANum("fvol", 1.5)); s.FlowShare = Math.Max(0.5, Math.Min(1, ANum("fshare", 0.7)));
             return s;
@@ -1833,6 +1850,7 @@ namespace KeystoneMT5
             aStart.IsEnabled = !on; aStop.IsEnabled = on;
             if (aGuardBtn != null) { aGuardBtn.Content = aset.ExitGuard ? "🎯 EXIT GUARD: ON" : "🎯 EXIT GUARD: OFF"; aGuardBtn.Background = aset.ExitGuard ? Tint(Gold, 90) : Tint(Sx.Card2, 220); aGuardNow.Visibility = auto.GuardAlert ? Visibility.Visible : Visibility.Collapsed; }
             if (aset.ExitGuard && auto.GuardText != "") aInfo.Text += "\n" + HedgeLayout.Short(auto.GuardText) + (auto.GuardAlert ? "  ⚠ REACHED — press ⛔ CLOSE ALL NOW" : "");   // 09j: one short line (the reasons are in the tooltip)
+            { var cl = ConsultBannerLine(); if (cl != "") aInfo.Text += "\n" + cl; if (!Sim) { var wb = WithdrawBanner(); if (wb != "") aInfo.Text += "\n" + wb; } }   // 🧭 💸 09r
             { var rr = auto.Running && auto.Current != null ? auto.Radar : null; if (rr != null && rr.Text != "") { aInfo.Text += "\n" + rr.Text + (rr.Near.Count > 0 ? "  ·  🔎 like " + rr.Near[0].Date + " (" + rr.Near[0].Depth.ToString("0.0", IC) + "×, " + (string.IsNullOrEmpty(rr.Near[0].Reason) ? "open" : rr.Near[0].Reason) + ")" : ""); } if (aNearBtn != null) { aNearBtn.Visibility = rr != null && !double.IsNaN(rr.P) ? Visibility.Visible : Visibility.Collapsed; if (rr != null && !double.IsNaN(rr.P)) { var col = rr.P * 100 >= (auto.Set ?? aset).RadarAlert ? Red : rr.P >= 0.3 ? Amber : Green; aNearBtn.Content = "⚠ " + (100 * rr.P).ToString("0", IC) + " % · 🔎 SIMILAR"; aNearBtn.Background = Tint(col, 120); } } }
             {   // 09j: the banner stays COMPACT — at most HedgeLayout.InfoLines lines, the whole text in the tooltip and behind ▸ details
                 var full = aInfo.Text + (aset.ExitGuard && auto.GuardText != "" ? "\n\n" + auto.GuardText : "") + (aRec != null && aRec.Text != "" && auto.GuardTotal < 0 ? "\n\n" + aRec.Text : "");
@@ -1882,6 +1900,7 @@ namespace KeystoneMT5
         {
                 var L = new List<string>();
                 if (aView == "🧠 AI") return AiLines();
+                if (aView == "🧭 CONSULT") return ConsultLines();
                 if (aView == "ITERATIONS")
                 {
                     L.Add(string.Format("{0,4}  {1,-10} {2,-8} {3,-8} {4,-5} {5,5} {6,5} {7,7} {8,9} {9,9} {10,9} {11,11} {12,11}  {13}", "#", "DATE", "START", "END", "FIRST", "BUYS", "SELLS", "HEDGES", "BUY LOTS", "SELL LOTS", "MAX LOTS", "MAX DD", "RESULT", "HOW"));
@@ -1897,6 +1916,7 @@ namespace KeystoneMT5
                 else if (aView == "ANALYSIS")
                 {
                     var st = auto.Calc(auto.Iterations); var d = auto.Iterations.Where(x => x.Done).ToList();
+                    if (!Sim) { var wl = WithdrawLines(); if (wl.Count > 0) { L.AddRange(wl); L.Add(""); } }   // 💸 09r: the withdrawal plan
                     L.AddRange(AutoStepInLines());   // 🚑 09n: the step-in statistics (live and simulated apart)
                     if (RadarModel.Default.Ready) { L.AddRange(DangerRadar.CalibrationText(RadarModel.Default)); L.Add(""); }
                     if (aWi.Count > 0) { L.Add(WhatIf.Summary(aWi)); foreach (var w in aWi) L.Add("   #" + w.N + "  " + w.Verdict + " · " + w.WithoutYou + "  (your first manual action: " + w.What + ")"); L.Add(""); }

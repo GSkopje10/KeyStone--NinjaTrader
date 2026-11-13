@@ -36,7 +36,6 @@ namespace KeystoneMT5
         public const string LIB = "LIB", MINE = "MINE", TICKS = "TICKS";
         public const string LibLabel = "estimate — futures candles, synthetic ticks";
         public static bool Real(string src) { return src != LIB; }
-        public const double LibPenalty = 1.5;   // a library point counts as 1.5 × further away than a real-tick point at the same distance
     }
 
     // what happened next for one option: the basket's result (× its target), the worst total after the point (× target, ≤ 0), minutes to the exit
@@ -143,7 +142,7 @@ namespace KeystoneMT5
         static double Sd(List<double> v) { if (v.Count < 2) return 0; double m = v.Average(); return Math.Sqrt(v.Sum(x => (x - m) * (x - m)) / (v.Count - 1)); }
         // the k nearest COMPLETE points whose outcome was known before `now` (walk-forward: EndAt ≤ now) — deterministic (distance, then time).
         // The user's REAL-tick points come first: when at least `realFirst` of them are known, ONLY real-tick points are used; else the library
-        // (an estimate — futures candles, synthetic ticks) fills in, its distances × LibPenalty (weighted below the real ones).
+        // (an estimate — futures candles, synthetic ticks) fills in AFTER all the real ones (weighted below them).
         public static List<ConsultPoint> Nearest(IEnumerable<ConsultPoint> mem, double[] x, string setup, DateTime now, int k, int realFirst = DefaultMinN)
         {
             var real = new List<Tuple<double, ConsultPoint>>(); var lib = new List<Tuple<double, ConsultPoint>>();
@@ -151,11 +150,11 @@ namespace KeystoneMT5
             {
                 if (p == null || p.EndAt > now || p.At >= now || !p.Complete) continue;
                 double d = ConsultFeatures.Dist(x, p.X, setup, p.Setup);
-                if (ConsultSrc.Real(p.Src)) real.Add(Tuple.Create(d, p)); else lib.Add(Tuple.Create(d * ConsultSrc.LibPenalty, p));
+                if (ConsultSrc.Real(p.Src)) real.Add(Tuple.Create(d, p)); else lib.Add(Tuple.Create(d, p));
             }
             Comparison<Tuple<double, ConsultPoint>> cmp = (a, b) => a.Item1 != b.Item1 ? a.Item1.CompareTo(b.Item1) : a.Item2.At.CompareTo(b.Item2.At);
             real.Sort(cmp); if (real.Count >= Math.Max(1, Math.Min(k, realFirst))) return real.Take(k).Select(t => t.Item2).ToList();
-            var all = real.Concat(lib).ToList(); all.Sort(cmp); return all.Take(k).Select(t => t.Item2).ToList();
+            lib.Sort(cmp); return real.Take(k).Concat(lib.Take(Math.Max(0, k - real.Count))).Select(t => t.Item2).ToList();   // all of yours first, the library only fills the rest
         }
         // the honesty gate: a recommendation only with n ≥ minN AND the best option beats HEDGE NOW on the same neighbours with a 95 % interval above `margin` (× target)
         public static ConsultAdvice Advise(IEnumerable<ConsultPoint> mem, double[] x, string setup, DateTime now, double target, int k = DefaultK, int minN = DefaultMinN, double margin = 0)
@@ -212,7 +211,7 @@ namespace KeystoneMT5
         public IList<ConsultPoint> Points { get { lock (gate) return all; } }
         public int Count { get { lock (gate) return all.Count; } }
         public int MineCount { get { lock (gate) return all.Count(p => ConsultSrc.Real(p.Src)); } }
-        public void Add(IEnumerable<ConsultPoint> pts) { lock (gate) { var n = new List<ConsultPoint>(all); foreach (var p in pts) if (p != null && p.X != null && !n.Any(q => q.Src == p.Src && q.At == p.At && q.Iter == p.Iter)) n.Add(p); all = n; } }
+        public void Add(IEnumerable<ConsultPoint> pts) { lock (gate) { var n = new List<ConsultPoint>(all); var seen = new HashSet<string>(n.Select(q => q.Src + "|" + q.At.Ticks + "|" + q.Iter)); foreach (var p in pts) if (p != null && p.X != null && seen.Add(p.Src + "|" + p.At.Ticks + "|" + p.Iter)) n.Add(p); all = n; } }
         public static List<ConsultPoint> ParseText(string text, out string note, out string track)
         {
             var r = new List<ConsultPoint>(); note = ""; track = "";
@@ -310,6 +309,59 @@ namespace KeystoneMT5
             var p = cc.Point; DateTime endAt = p.At;
             foreach (var o in ConsultOpt.All) { var r = Run(cc.Snap, o, m1, spec, horizonMin, ticks); p.Out[o] = r; if (!double.IsNaN(r.Minutes)) { var e = p.At.AddMinutes(r.Minutes); if (e > endAt) endAt = e; } }
             p.EndAt = endAt; cc.Measured = true;
+        }
+    }
+
+    // 🧭 BUILD FROM MY TICKS: the user's settings replayed on the REAL ticks he downloaded (🧪 BACKTEST ⬇ DOWNLOAD REAL TICKS) or recorded live, every hedge
+    // decision kept and its five options measured on the same real ticks — points with Src = TICKS (they outrank the library). In-memory SimBroker only.
+    public static class ConsultBuilder
+    {
+        // 1-minute candles from ticks (bid) — for days whose candles are not on this PC
+        public static List<Mt5Bar> BarsFromTicks(IEnumerable<SimTick> ticks)
+        {
+            var r = new List<Mt5Bar>(); Mt5Bar cur = null;
+            foreach (var t in ticks)
+            {
+                var m = new DateTime(t.T.Ticks - t.T.Ticks % TimeSpan.TicksPerMinute);
+                if (cur == null || cur.Time != m) { cur = new Mt5Bar { Time = m, O = t.Bid, H = t.Bid, L = t.Bid, C = t.Bid, V = 0, Spread = 0 }; r.Add(cur); }
+                if (t.Bid > cur.H) cur.H = t.Bid; if (t.Bid < cur.L) cur.L = t.Bid; cur.C = t.Bid; cur.V++;
+            }
+            return r;
+        }
+        // the runs of consecutive tick days (a gap of more than 3 calendar days starts a new run; at most `maxDays` days a run)
+        public static List<List<DateTime>> Runs(IEnumerable<DateTime> days, int maxDays = 20)
+        {
+            var res = new List<List<DateTime>>(); List<DateTime> cur = null;
+            foreach (var d in days.Select(x => x.Date).Distinct().OrderBy(x => x)) { if (cur == null || (d - cur[cur.Count - 1]).TotalDays > 3 || cur.Count >= maxDays) { cur = new List<DateTime>(); res.Add(cur); } cur.Add(d); }
+            return res;
+        }
+        // one run: the settings on the real ticks, every decision → its options measured (horizon = the run's end, marked to market there)
+        public static List<ConsultPoint> FromRun(AutoSettings set, SimSpec spec, List<Mt5Bar> bars, List<SimTick> ticks, double balance, Func<bool> cancel = null, Action<string> progress = null)
+        {
+            var pts = new List<ConsultPoint>(); if (ticks == null || ticks.Count < 100) return pts;
+            if (bars == null || bars.Count == 0) bars = BarsFromTicks(ticks);
+            var s = set.Copy(); s.TrackManual = false; s.OnManual = "ADOPT"; s.StepIn = false; s.TrendStack = false; s.ConsultMode = "ADVISE"; s.Windows = s.Windows ?? "";
+            var first = ticks[0].T.Date; var last = ticks[ticks.Count - 1].T;
+            var sb = new SimBroker(); var err = sb.Load(new SimSettings { Symbol = s.Symbol, From = first, To = last.Date, Balance = balance, Leverage = 500, Kind = "STANDARD", FixedSpread = -1, StopOutPct = 50 }, new List<Tuple<SimSpec, List<Mt5Bar>, List<SimTick>>> { Tuple.Create(spec, bars, ticks) });
+            if (err != "") { if (progress != null) progress("✖ " + err); return pts; }
+            var au = new HedgeAuto(); au.Send = (c, a, l) => sb.Command(c, a); au.StopOutPct = 50; var cases = new List<ConsultCase>(); au.OnConsultPoint += cc => cases.Add(cc);
+            sb.OnTickHook = () => { au.Step(sb); if (au.Current != null) au.GuardStep(sb, au.Set); };
+            if (au.Check(sb, s) != "") { if (progress != null) progress("✖ " + au.Check(sb, s)); return pts; }
+            au.Start(sb, s, false); sb.Playing = true; sb.Speed = 60;
+            for (long k = 0; k < 50000000 && !sb.Ended; k++)
+            {
+                sb.Advance(0.5); if ((k & 1023) == 0 && cancel != null && cancel()) return pts;
+                if (!au.Running) { double b1; int open; lock (sb.State.Gate) { b1 = sb.State.Account.Balance; open = sb.State.Positions.Count; } if (open > 0) { sb.Command("CLOSEALL", s.Symbol, "ALL"); continue; } if (b1 < 0.1 * balance) lock (sb.State.Gate) sb.Account.SetBalance(balance, sb.State.ServerNow); if (au.Check(sb, s) == "") au.Start(sb, s, true); else break; }
+            }
+            int i = 0; int hz = (int)Math.Max(10, (last - (cases.Count > 0 ? cases[0].Point.At : last)).TotalMinutes + 1);
+            foreach (var cc in cases)
+            {
+                if (cancel != null && cancel()) break; i++; if (progress != null) progress("🧭 measuring decision " + i + " / " + cases.Count + " (" + cc.Point.At.ToString("dd MMM HH:mm", CultureInfo.InvariantCulture) + ")");
+                cc.Snap.Kind = "STANDARD"; cc.Snap.Leverage = 500; cc.Snap.Spread = -1;
+                ConsultSim.Measure(cc, bars, spec, Math.Min(ConsultSim.HorizonMin, (int)Math.Max(10, (last - cc.Point.At).TotalMinutes)), ticks); cc.Point.Src = ConsultSrc.TICKS;
+                if (cc.Point.Complete) pts.Add(cc.Point);
+            }
+            return pts;
         }
     }
 

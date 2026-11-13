@@ -137,6 +137,9 @@ namespace KeystoneMT5
             // ⇅ HEDGE LAB: the hedge-instead-of-a-stop strategy tested on the saved MT5 history (research only, sends nothing)
             var lab = Sx.Pill("⇅ HEDGE LAB", Sx.Tint(Sx.Violet, 46)); lab.Height = 26; lab.Margin = new Thickness(0, 6, 10, 6); lab.FontSize = 11.5; lab.ToolTip = "test the hedge-instead-of-a-stop strategy on your MT5 history (research only — nothing is sent to MT5)";
             WindowChrome.SetIsHitTestVisibleInChrome(lab, true); lab.Click += delegate { HedgeLabWindow.ShowLab(w); }; btns.Children.Add(lab);
+            // 📥 DATA STUDIO (13s): download / manage MT5's history (candles + real ticks) — sends nothing
+            var dsb = Sx.Pill("📥 DATA STUDIO", Sx.Tint(Sx.Cyan, 46)); dsb.Height = 26; dsb.Margin = new Thickness(0, 6, 10, 6); dsb.FontSize = 11.5; dsb.ToolTip = "download and manage MT5's history (1-minute candles + real ticks): ranges, resumable, what is on this PC, delete, 📦 export for Claude — it never sends an order";
+            WindowChrome.SetIsHitTestVisibleInChrome(dsb, true); dsb.Click += delegate { DataStudioWindow.Open(w, Bridge); }; btns.Children.Add(dsb);
             // 🕵 DECODE HEDGING: learns a trader's hedging from the trades copied onto your accounts (read only); its recorder runs from start-up
             HedgeDecodeWindow.StartService();
             var dec = Sx.Pill("🕵 DECODE HEDGING", Sx.Tint(Sx.Gold, 46)); dec.Height = 26; dec.Margin = new Thickness(0, 6, 10, 6); dec.FontSize = 11.5; dec.ToolTip = "learn his hedging from the trades COPIED onto your Duramarkets / IC Markets accounts — every execution, hedge size, pending order and moving average in one pool (read only — nothing is sent to MT5)";
@@ -146,13 +149,76 @@ namespace KeystoneMT5
             cap("✕", mode == "HOME" ? "close SpasiX" : "close this mode (back to HOME)", true, () => w.Close());
             bar.MouseLeftButtonDown += (s, e) => { if (e.ClickCount == 2) { w.WindowState = w.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized; e.Handled = true; } };
             var edge = new Border { Height = 1, Background = new LinearGradientBrush(Sx.Tint(Sx.Gold, 160).Color, Sx.Tint(Sx.Cyan, 120).Color, 0) };
-            var top = new StackPanel(); top.Children.Add(bar); top.Children.Add(edge); DockPanel.SetDock(top, Dock.Top); dp.Children.Add(top); dp.Children.Add(content);
+            // 🍂 13s LOOK: the season's layer behind the title bar (accents, the drawn scene, the light animation) + ONE header line — never clickable
+            var lookCv = new Canvas { IsHitTestVisible = false, ClipToBounds = true }; Grid.SetColumnSpan(lookCv, 4); bar.Children.Insert(0, lookCv);
+            var quote = new TextBlock { FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, IsHitTestVisible = false };
+            var quoteBar = new Border { Height = 20, Child = quote, IsHitTestVisible = false, Background = Sx.Tint(Sx.Card2, 140) };
+            var lk = new LookParts { W = w, Cv = lookCv, Edge = edge, Quote = quote, QuoteBar = quoteBar }; looks.Add(lk);
+            lookCv.SizeChanged += delegate { PaintLook(lk); };
+            var top = new StackPanel(); top.Children.Add(bar); top.Children.Add(edge); top.Children.Add(quoteBar); DockPanel.SetDock(top, Dock.Top); dp.Children.Add(top); dp.Children.Add(content);
             var outer = new Border { Child = dp, Background = Sx.Bg, BorderBrush = Sx.Tint(Sx.Cyan, 70), BorderThickness = new Thickness(1) };
             w.StateChanged += delegate { outer.Margin = w.WindowState == WindowState.Maximized ? new Thickness(7) : new Thickness(0); outer.BorderThickness = new Thickness(w.WindowState == WindowState.Maximized ? 0 : 1); maxB.Content = w.WindowState == WindowState.Maximized ? "❐" : "▢"; };
             w.Loaded += delegate { if (w.WindowState == WindowState.Maximized) { outer.Margin = new Thickness(7); outer.BorderThickness = new Thickness(0); maxB.Content = "❐"; } };
-            w.Closed += delegate { strips.RemoveAll(s => s.Item1 == w); centers.Remove(w); };
+            w.Closed += delegate { strips.RemoveAll(s => s.Item1 == w); centers.Remove(w); looks.Remove(lk); LookCtx.Remove(w); };
+            EnsureLookTimer(); PaintLook(lk);
             PaintStrip(w, tabs);
             return outer;
+        }
+        // ---- 🍂 13s LOOK (Look.cs): the season's accents in the title band, the scene, the animation (OFF by default) and the header line
+        sealed class LookParts { public Window W; public Canvas Cv; public Border Edge, QuoteBar; public TextBlock Quote; public List<System.Windows.Shapes.Ellipse> Flakes = new List<System.Windows.Shapes.Ellipse>(); public List<double[]> Fv = new List<double[]>(); }
+        static readonly List<LookParts> looks = new List<LookParts>();
+        public static readonly Dictionary<Window, Func<SxLookCtx>> LookCtx = new Dictionary<Window, Func<SxLookCtx>>();   // each mode window: what its header line knows
+        static System.Windows.Threading.DispatcherTimer lookTimer, animTimer; static readonly Random lookRnd = new Random(7);
+        public static SxLook Look { get { return SxLook.Load(MainWindow.GetSetting("look.13s", "")); } }
+        public static void SetLook(SxLook l) { MainWindow.PutSetting("look.13s", l.Save()); ApplyLook(); }
+        public static void ApplyLook() { foreach (var l in looks.ToList()) PaintLook(l); EnsureLookTimer(); }
+        static Color Hex(string h, double a = 1) { var c = (Color)ColorConverter.ConvertFromString(h); c.A = (byte)Math.Round(255 * a); return c; }
+        static string SeasonNow() { var ny = DateTime.UtcNow.AddHours(-5); try { ny = TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTime.UtcNow, "Eastern Standard Time"); } catch { } return Look.Resolve(ny.Date); }
+        static void EnsureLookTimer()
+        {
+            if (lookTimer == null) { lookTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(20) }; lookTimer.Tick += delegate { foreach (var l in looks.ToList()) QuotePaint(l); }; lookTimer.Start(); }
+            bool anim = Look.Anim && SeasonNow() != "";
+            if (anim && animTimer == null) { animTimer = new System.Windows.Threading.DispatcherTimer(System.Windows.Threading.DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(50) }; animTimer.Tick += delegate { AnimStep(); }; animTimer.Start(); }
+            if (!anim && animTimer != null) { animTimer.Stop(); animTimer = null; foreach (var l in looks) { foreach (var f in l.Flakes) l.Cv.Children.Remove(f); l.Flakes.Clear(); l.Fv.Clear(); } }
+        }
+        static void PaintLook(LookParts l)
+        {
+            var lk = Look; var season = SeasonNow(); var pal = SxSeasons.Palette(season); l.Cv.Children.Clear(); l.Flakes.Clear(); l.Fv.Clear();
+            double w = l.Cv.ActualWidth > 0 ? l.Cv.ActualWidth : 1600, h = l.Cv.ActualHeight > 0 ? l.Cv.ActualHeight : 38;
+            if (season == "") { l.Edge.Background = new LinearGradientBrush(Sx.Tint(Sx.Gold, 160).Color, Sx.Tint(Sx.Cyan, 120).Color, 0); }
+            else
+            {
+                var band = new System.Windows.Shapes.Rectangle { Width = w, Height = h, Fill = new LinearGradientBrush(Hex(pal.Sky1, 0.55), Hex(pal.Sky2, 0.0), 0) }; l.Cv.Children.Add(band);
+                if (lk.Scene)
+                {   // a drawn ridge line (static): two soft mountain silhouettes + the season's sun / moon — low alpha, behind everything
+                    var sun = new System.Windows.Shapes.Ellipse { Width = 22, Height = 22, Fill = new RadialGradientBrush(Hex(pal.Glow, 0.45), Hex(pal.Glow, 0.0)) }; Canvas.SetLeft(sun, w * 0.62); Canvas.SetTop(sun, 3); l.Cv.Children.Add(sun);
+                    foreach (var layer in new[] { Tuple.Create(0.55, pal.Accent2, 0.20, 11.0), Tuple.Create(0.35, pal.Accent, 0.14, 5.0) })
+                    {
+                        var pts = new PointCollection(); pts.Add(new Point(0, h)); int n = 28; double seed = layer.Item4;
+                        for (int i = 0; i <= n; i++) { double x = w * i / n; double y = h * (1 - layer.Item1 * (0.55 + 0.45 * Math.Abs(Math.Sin(i * 0.9 + seed) * Math.Cos(i * 0.37 + seed * 2)))); pts.Add(new Point(x, y)); }
+                        pts.Add(new Point(w, h)); l.Cv.Children.Add(new System.Windows.Shapes.Polygon { Points = pts, Fill = new SolidColorBrush(Hex(layer.Item2, layer.Item3)) });
+                    }
+                }
+                l.Edge.Background = new LinearGradientBrush(Hex(pal.Accent, 0.85), Hex(pal.Accent2, 0.75), 0);
+                if (lk.Anim)
+                    for (int i = 0; i < 24; i++) { var f = new System.Windows.Shapes.Ellipse { Width = 3, Height = 3, Fill = new SolidColorBrush(Hex(season == "FALL" ? pal.Accent2 : season == "SUMMER" ? pal.Glow : season == "SPRING" ? pal.Accent2 : "#FFFFFF", 0.55)) }; var v = new[] { lookRnd.NextDouble() * w, lookRnd.NextDouble() * h, 0.3 + lookRnd.NextDouble() * 0.6, (lookRnd.NextDouble() - 0.5) * 0.6 }; Canvas.SetLeft(f, v[0]); Canvas.SetTop(f, v[1]); l.Cv.Children.Add(f); l.Flakes.Add(f); l.Fv.Add(v); }
+            }
+            l.QuoteBar.Visibility = lk.Quotes ? Visibility.Visible : Visibility.Collapsed; QuotePaint(l);
+        }
+        static void QuotePaint(LookParts l)
+        {
+            if (!Look.Quotes) { l.QuoteBar.Visibility = Visibility.Collapsed; return; }
+            var season = SeasonNow(); var pal = SxSeasons.Palette(season); SxLookCtx ctx = null; Func<SxLookCtx> f; if (LookCtx.TryGetValue(l.W, out f)) try { ctx = f(); } catch { }
+            var t = SxSeasonQuotes.Line(ctx, season, DateTime.Now); l.Quote.Text = t;
+            l.Quote.Foreground = t.StartsWith("⏰") || t.StartsWith("⚠") ? Sx.Amber : new SolidColorBrush(Hex(season == "" ? "#96A5C3" : pal.Ink, 0.9));
+        }
+        static void AnimStep()
+        {
+            foreach (var l in looks)
+            {
+                if (l.W.WindowState == WindowState.Minimized || !l.W.IsVisible) continue; double w = l.Cv.ActualWidth, h = l.Cv.ActualHeight;
+                for (int i = 0; i < l.Flakes.Count; i++) { var v = l.Fv[i]; v[1] += v[2]; v[0] += v[3]; if (v[1] > h) { v[1] = -3; v[0] = lookRnd.NextDouble() * w; } Canvas.SetLeft(l.Flakes[i], v[0]); Canvas.SetTop(l.Flakes[i], v[1]); }
+            }
         }
         static ControlTemplate capT, capDangerT;
         static ControlTemplate CapTemplate(bool danger)

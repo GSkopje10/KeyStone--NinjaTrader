@@ -29,7 +29,7 @@ namespace KeystoneMT5
         {
             var sp = new StackPanel { MaxWidth = 1180, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 10) };
             sp.Children.Add(new TextBlock { Text = "🧪 BACKTEST STUDIO", Foreground = Cyan, FontSize = 22, FontWeight = FontWeights.Bold, Margin = new Thickness(2, 0, 0, 2) });
-            sp.Children.Add(new TextBlock { Text = "Three steps: the symbols, the days, the account → ▶ START. MT5's own candles and REAL TICKS are downloaded once and kept on this PC; then everything replays on the same chart, panel and tabs as live. Nothing reaches your MT5 account.", Foreground = Muted, FontSize = 13, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 0, 0, 12) });
+            sp.Children.Add(new TextBlock { Text = "Three steps: the symbols, the days, the account → ▶ START. The backtest LOADS what is on this PC — MT5's candles and REAL TICKS are downloaded in 📥 DATA STUDIO; everything replays on the same chart, panel and tabs as live. Nothing reaches your MT5 account.", Foreground = Muted, FontSize = 13, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 0, 0, 12) });
             Func<string, SolidColorBrush, StackPanel> card = (h, col) => { var c = new StackPanel(); c.Children.Add(new TextBlock { Text = h, Foreground = col, FontSize = 15, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 8) }); return c; };
             Func<StackPanel, SolidColorBrush, Border> wrap = (c, col) => new Border { Background = Card, BorderBrush = Tint(col, 110), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(16, 12, 16, 14), Child = c, Margin = new Thickness(0, 0, 0, 12) };
             Func<string, string, FrameworkElement, FrameworkElement> field = (cap, tip, el) => { var r = new DockPanel { Margin = new Thickness(0, 0, 0, 8) }; var t = new TextBlock { Text = cap, Foreground = Text, FontSize = 12.5, FontWeight = FontWeights.SemiBold, Width = 150, VerticalAlignment = VerticalAlignment.Center, ToolTip = tip }; r.Children.Add(t); r.Children.Add(el); return r; };
@@ -121,12 +121,9 @@ namespace KeystoneMT5
             btBarFill = new Border { CornerRadius = new CornerRadius(4), Background = new LinearGradientBrush(Cyan.Color, Green.Color, 0), HorizontalAlignment = HorizontalAlignment.Left, Width = 0 }; btBar.Child = btBarFill;
             var br = new StackPanel { Orientation = Orientation.Horizontal };
             var start = Pill("▶ START THE BACKTEST", Green); start.Height = 46; start.FontSize = 15; start.Padding = new Thickness(26, 0, 26, 0); start.Foreground = Bg; start.Click += delegate { StartBacktest(); };
-            var down = Pill("⬇ ONLY DOWNLOAD", Card); down.Height = 46; down.Foreground = Cyan; down.ToolTip = "download the missing days (+ the warm-up) from MT5 without starting"; down.Click += delegate { StartDownload(false); };
-            var years = Sx.Drop("⬇ DOWNLOAD YEARS", Card, () => new[] { Tuple.Create("1 month", 31), Tuple.Create("3 months", 92), Tuple.Create("6 months", 183), Tuple.Create("1 year", 365), Tuple.Create("2 years", 730), Tuple.Create("5 years", 1826) }
-                .Select(x => { var xx = x; return new Mi("⬇", "the last " + xx.Item1 + " of 1-minute candles (" + string.Join(" + ", btSyms) + ")", () => StartDownload(false, xx.Item2)) { Hint = "saved on this PC" }; }).Concat(new[] { Mi.S(), new Mi { Text = "kept in " + HistoryStore.Root + " — every later load is instant; the real ticks come for the days you test", Off = true } }).ToList());
-            years.Height = 46; years.Foreground = Gold; years.ToolTip = "download months / years of 1-minute candles once (in the background); later backtests load from this PC at once";
-            br.Children.Add(start); br.Children.Add(down); br.Children.Add(years); c4.Children.Add(br);
-            var tkb = BuildTickButtons(); tkb.Item1.Margin = new Thickness(0, 8, 0, 0); c4.Children.Add(tkb.Item1); c4.Children.Add(tkb.Item2);   // ⬇ 13r: MT5's real ticks, months at a time + 📦 the compact export
+            var ds = Pill("📥 DATA STUDIO — download / manage history", Card); ds.Height = 46; ds.Foreground = Cyan; ds.ToolTip = "📥 DATA STUDIO: download MT5's 1-minute candles and REAL ticks (any range, resumable, ■ CANCEL), see what is on this PC, delete a range, 📦 export for Claude — the backtest then loads it from this PC";
+            ds.Click += delegate { DateTime f0, t0; if (Range(out f0, out t0)) DataStudioWindow.Open(this, live, btSyms, f0.AddDays(-Warm()), t0, true, btTicks); else DataStudioWindow.Open(this, live, btSyms); };
+            br.Children.Add(start); br.Children.Add(ds); c4.Children.Add(br);   // 📥 13s: downloading lives in the DATA STUDIO (the backtest only loads)
             btStatus = new TextBlock { Foreground = Cyan, FontSize = 12.5, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 6) }; c4.Children.Add(btStatus); c4.Children.Add(btBar);
             c4.Children.Add(new TextBlock { Text = "On the chart: SPACE = play / pause • ← → = one candle back / forward • Shift + ← → = one minute • Page Up / Down = one day • 📅 = go to a date and time or change the days. Trade with the panel, the right-click and the lines — exactly as live. Every finished day is saved in 🗂 POOL.", Foreground = Muted, FontSize = 11.5, TextWrapping = TextWrapping.Wrap });
             sp.Children.Add(wrap(c4, Green));
@@ -158,7 +155,7 @@ namespace KeystoneMT5
             if (btSyms.Count == 0) { btStatus.Text = "✖ tick a symbol first"; btStatus.Foreground = Red; return; }
             HashSet<DateTime> common = null; foreach (var sym in btSyms) { var ds = new HashSet<DateTime>(HistoryStore.Days(sym).Where(d => d.DayOfWeek != DayOfWeek.Saturday)); if (common == null) common = ds; else common.IntersectWith(ds); }
             var days = (common ?? new HashSet<DateTime>()).OrderByDescending(d => d).ToList();
-            if (days.Count == 0) { Sx.Info(this, "🗂 Downloaded days", "No day of " + string.Join(" + ", btSyms) + " is on this PC yet — choose the days and press ⬇ ONLY DOWNLOAD or ⬇ DOWNLOAD YEARS first.", Violet); return; }
+            if (days.Count == 0) { Sx.Info(this, "🗂 Downloaded days", "No day of " + string.Join(" + ", btSyms) + " is on this PC yet — choose the days and download them in 📥 DATA STUDIO first.", Violet); return; }
             DateTime f0, t0; bool hasR = Range(out f0, out t0);
             var sp = new StackPanel { MinWidth = 720 };
             sp.Children.Add(new TextBlock { Text = days.Count + " day(s) of " + string.Join(" + ", btSyms) + " on this PC • ● = MT5's real ticks too • click = test that day • Shift + click = from FROM to that day", Foreground = Muted, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 8) });
@@ -231,7 +228,7 @@ namespace KeystoneMT5
         {
             if (dl != null) return "⬇ " + (dlTotal > 1 ? "[" + (dlTotal - dlQueue.Count) + "/" + dlTotal + "] " : "") + dl.Status + "   " + (100 * dl.Progress).ToString("0", IC) + " %";
             if (sim != null && sim.Spec != null) return "loading the replay …";
-            return "📂 choose the symbols and the days in 📂 DATA → ▶ START  (the candles are downloaded from MT5 once, then they load from this PC)";
+            return "📂 choose the symbols and the days in 📂 DATA → ▶ START  (it loads what is on this PC — download in 📥 DATA STUDIO)";
         }
         void PaintStart()
         {
@@ -265,7 +262,7 @@ namespace KeystoneMT5
                 int need = 0, got = 0, tk = 0, none = 0; for (var d = f.AddDays(-Warm()); d <= t; d = d.AddDays(1)) { if (d.DayOfWeek == DayOfWeek.Saturday) continue; need++; if (HistoryStore.HasDay(sym, d)) got++; if (d.DayOfWeek != DayOfWeek.Sunday && HistoryStore.IsNone(sym, d)) none++; if (d >= f && HistoryStore.HasTicks(sym, d)) tk++; }
                 missing += need - got; emptyDays += none; tickMiss += Math.Max(0, wd - tk); parts.Add(sym + " " + (got - none) + "/" + need + (none > 0 ? " (" + none + " empty)" : "") + (btTicks ? " (ticks " + tk + ")" : ""));
             }
-            btDays.Text = "📅 " + f.ToString("ddd dd MMM", IC) + " → " + t.ToString("ddd dd MMM yyyy", IC) + " • " + wd + " trading day(s)   •   💾 on this PC: " + string.Join("  •  ", parts) + (missing > 0 ? "   →  ▶ START downloads the rest from MT5 once" : emptyDays > 0 ? "   →  " + emptyDays + " day(s) MT5 gave no candles for — ↻ ASK MT5 AGAIN FOR EMPTY DAYS" : btTicks && tickMiss > 0 ? "   →  ▶ START adds MT5's real ticks (with MT5 connected)" : "   ✓ ready");
+            btDays.Text = "📅 " + f.ToString("ddd dd MMM", IC) + " → " + t.ToString("ddd dd MMM yyyy", IC) + " • " + wd + " trading day(s)   •   💾 on this PC: " + string.Join("  •  ", parts) + (missing > 0 ? "   →  " + missing + " day(s) not downloaded — open 📥 DATA STUDIO (▶ START offers it)" : emptyDays > 0 ? "   →  " + emptyDays + " day(s) MT5 gave no candles for — ↻ ASK MT5 AGAIN FOR EMPTY DAYS" : btTicks && tickMiss > 0 ? "   →  real ticks: download them in 📥 DATA STUDIO (else the candles' path is used)" : "   ✓ ready");
             int wu = Warm(); if (wu > 0) btDays.Text += "\n🔥 + " + wu + " warm-up day(s) before FROM (from " + f.AddDays(-wu).ToString("ddd dd MMM", IC) + ") — drawn at once for the context, downloaded AFTER your days (MORE SETTINGS → WARM-UP, 0 = none)";
             var firsts = new List<string>(); lock (live.State.Gate) foreach (var sym in btSyms) { DateTime fd; if (live.State.FirstDate.TryGetValue(sym, out fd)) firsts.Add(sym + " from " + fd.ToString("dd MMM yyyy", IC) + (fd.Date > f ? " ⚠ after FROM" : "")); }
             if (firsts.Count > 0) btDays.Text += "\n🏛 MT5's history (your broker): " + string.Join("  •  ", firsts) + " — older days cannot be tested";
@@ -378,8 +375,14 @@ namespace KeystoneMT5
             DateTime f, t; if (btSyms.Count == 0 || !Range(out f, out t)) { btStatus.Text = "✖ tick a symbol and choose the days first"; btStatus.Foreground = Red; return; }
             int missing = 0; foreach (var sym in btSyms) for (var d = f.AddDays(-Warm()); d <= t; d = d.AddDays(1)) if (d.DayOfWeek != DayOfWeek.Saturday && (!HistoryStore.HasDay(sym, d) || (btTicks && d >= f && d.DayOfWeek != DayOfWeek.Sunday && !HistoryStore.HasTicks(sym, d) && HistoryStore.LoadDay(sym, d).Count > 0))) missing++;
             bool alive; lock (live.State.Gate) alive = live.State.Alive && live.State.BridgeVersion >= 4;
-            if (missing > 0 && alive) { StartDownload(true); return; }
-            LoadAndStart(); if (alive) StartBackgroundTicks();
+            if (missing > 0)
+            {   // 📥 13s: the backtest only LOADS — missing days are downloaded in the DATA STUDIO
+                int k = Sx.Choice(this, "🧪 BACKTEST", missing + " day(s) of " + string.Join(" + ", btSyms) + " (candles" + (btTicks ? " / real ticks" : "") + ") are not downloaded on this PC.\nThe backtest loads only what is on this PC.", null,
+                    new[] { "⬇ DOWNLOAD THE MISSING DAYS (📥 DATA STUDIO)", "START WITH WHAT IS HERE", "CANCEL" }, new[] { Cyan, Green, Muted });
+                if (k == 0) { DataStudioWindow.Open(this, live, btSyms, f.AddDays(-Warm()), t, true, btTicks, alive); return; }
+                if (k != 1) return;
+            }
+            LoadAndStart();
         }
         void LoadAndStart()
         {
@@ -392,7 +395,7 @@ namespace KeystoneMT5
                 string srv; lock (live.State.Gate) srv = live.State.Account.Server; var tk = btTicks ? HistoryStore.LoadTickRange(sym, f, t, srv) : null;   /* 🎞 09k: a day with no downloaded ticks uses the recorded ones (this account's server first) */ if (tk != null) ticks += tk.Count; bars += m1.Count;
                 input.Add(Tuple.Create(spec, m1, tk));
             }
-            if (input.Count == 0) { btStatus.Text = "✖ nothing to replay: " + string.Join(", ", miss) + " — connect MT5 and press ▶ START (it downloads)"; btStatus.Foreground = Red; return; }
+            if (input.Count == 0) { btStatus.Text = "✖ nothing to replay: " + string.Join(", ", miss) + " — download it in 📥 DATA STUDIO"; btStatus.Foreground = Red; return; }
             if (sim.Spec != null && sim.State.Deals.Count(d => d.IsExit) > 0) { SaveRun(); PoolSaveAll(); }
             Func<TextBox, double, double> num = (b, d) => { double v; return double.TryParse(b.Text.Replace(',', '.'), NumberStyles.Float, IC, out v) ? v : d; };
             var st = new SimSettings { Symbol = string.Join(",", input.Select(x => x.Item1.Name)), From = f, To = t, WarmDays = Warm(), StartNyHour = btStartNy, Balance = Math.Max(100, num(btBal, 10000)), Leverage = (int)Math.Max(1, num(btLev, 500)), CommissionPerLot = Math.Max(0, num(btComm, 7)),

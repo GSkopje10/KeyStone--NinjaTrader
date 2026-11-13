@@ -95,10 +95,10 @@ namespace KeystoneMT5
     public static class RaceLanes
     {
         // ▶ COMPARE WITH MY SETTINGS (09j): the ready-made set — the baseline, the recommended protections, ➕ ADD ON BREAK + 🛡 PROTECT, TAH
-        public static readonly string[] Keys = { "MINE", "REC", "CMP", "RNG", "LKL", "LKF", "BH1", "BH5", "BH15", "BH30", "BH60", "A", "AH", "B", "C", "D", "F", "BOX", "SLV", "FX10", "NFB", "TST", "RNA", "RLK", "RBE", "TAH", "AOB", "AOP", "RUN", "DEF", "STP", "DEF+STP", "SW2" };   // every lane (the RACE tab's list; 09l: DEF)
-        public static readonly string[] Compare = { "MINE", "RUN", "REC", "AOP", "TAH", "SW2" };   // 09o: 🪜 2ND-SWING next to MINE   // 09k: 🦅 RUNNER next to MINE
+        public static readonly string[] Keys = { "MINE", "CNS", "REC", "CMP", "RNG", "LKL", "LKF", "BH1", "BH5", "BH15", "BH30", "BH60", "A", "AH", "B", "C", "D", "F", "BOX", "SLV", "FX10", "NFB", "TST", "RNA", "RLK", "RBE", "TAH", "AOB", "AOP", "RUN", "DEF", "STP", "DEF+STP", "SW2" };   // every lane (the RACE tab's list; 09l: DEF)
+        public static readonly string[] Compare = { "MINE", "RUN", "REC", "AOP", "TAH", "SW2", "CNS" };   // 09r: 🧭 CONSULT acting next to MINE   // 09o: 🪜 2ND-SWING next to MINE   // 09k: 🦅 RUNNER next to MINE
         // 09l: when MY SETTINGS already are 🦅 RUNNER, 🛡 DEFENDER (DEF) takes RUN's place — never RUNNER twice
-        public static string[] CompareFor(AutoSettings mine) { return mine != null && mine.IsRunner ? new[] { "MINE", "DEF", "REC", "AOP", "TAH", "SW2" } : Compare; }
+        public static string[] CompareFor(AutoSettings mine) { return mine != null && mine.IsRunner ? new[] { "MINE", "DEF", "REC", "AOP", "TAH", "SW2", "CNS" } : Compare; }
         static string RadarText { get { return "50 %"; } }
         public static readonly string[] Experimental = { "SLV", "FX10", "NFB", "TST", "RNA", "RLK", "RBE", "TAH", "AOB", "AOP", "RUN", "STP", "DEF+STP" };
         public static bool IsExperimental(string k) { return Array.IndexOf(Experimental, k) >= 0; }
@@ -117,6 +117,7 @@ namespace KeystoneMT5
             if (k == "STP") return "🧪 EXPERIMENTAL — 🚑 STEP IN on MY SETTINGS: once a basket is " + mineX + " × its target deep (or stuck 2 h), it stacks WITH the trend up to the whole simulated account, trims, trails, cuts pairs and closes at breakeven + the target — it may blow (counted, the lane restarts). Simulation only.";
             if (k == "DEF+STP") return "🧪 EXPERIMENTAL — 🛡 DEFENDER + 🚑 STEP IN on its own simulated account (sized from the race balance): the step-in statistics next to plain DEFENDER (DEF). Simulation only.";
             if (k == "SW2") return "🪜 MY SETTINGS with the 2ND-SWING hedge trigger: in drawdown the hedge waits for the break of the 2nd swing low / high formed after the entry, then flips back at the most recent swing; after 2 hedges only beyond the basket's range. " + AutoSettings.Swing2Evidence;
+            if (k == "CNS") return "🧭 MY SETTINGS + the HISTORY CONSULT ACTING (simulated): at each hedge decision, when the similar past decisions give a CLEAR answer (≥ 30 and the best option beats the hedge with a 95 % interval above $0) it waits for the swing / locks / adds with the trend / closes instead — your own real-tick history first, the 6-year library only as an " + ConsultSrc.LibLabel + ". The 6-year bench: acting made it WORSE (−$357k / 47 blow-ups vs −$258k / 38) — this lane keeps checking it on live prices. Simulation only.";
             if (k == "DEF") return "🛡 DEFENDER, the default, on its own simulated account (sized from the race balance, not from MY SETTINGS).";
             if (k == "RUN") return "🧪 EXPERIMENTAL — " + AutoSettings.RunnerText + " Here on its own simulated account, sized from the race balance.";
             if (k == "TST") return "🧪 EXPERIMENTAL — not proven. 🚀 TREND STACK on MY SETTINGS: the short-term trend detector stacks lots on the trend's side at each new swing break (sized to reach the target in 1.5 × ATR M5, capped), a flip closes the stacks, a strong trend banks the other side's winners — simulation only.";
@@ -125,13 +126,14 @@ namespace KeystoneMT5
         }
         public static AutoSettings For(string k, AutoSettings mine, double bal)
         {
-            bool mineBased = k == "MINE" || k == "CMP" || k == "RNG" || k == "LKL" || k == "LKF" || k == "FX10" || k == "NFB" || k == "TST" || k == "RNA" || k == "RLK" || k == "RBE" || k == "TAH" || k == "AOB" || k == "AOP" || k == "REC" || k == "STP" || k == "SW2" || k.StartsWith("BH");
+            bool mineBased = k == "MINE" || k == "CNS" || k == "CMP" || k == "RNG" || k == "LKL" || k == "LKF" || k == "FX10" || k == "NFB" || k == "TST" || k == "RNA" || k == "RLK" || k == "RBE" || k == "TAH" || k == "AOB" || k == "AOP" || k == "REC" || k == "STP" || k == "SW2" || k.StartsWith("BH");
             var set = mineBased ? mine.Copy() : k == "SLV" ? AutoSettings.Model("SAFELIVE", mine, bal) : k == "RUN" ? AutoSettings.Model("RUNNER", mine, bal) : k == "DEF" || k == "DEF+STP" ? AutoSettings.Model("DEFENDER", mine, bal) : AutoSettings.Model(k, mine);
             if (k.StartsWith("BH")) { set.EntryMode = "AGGBRK"; set.Tf = int.Parse(k.Substring(2), CultureInfo.InvariantCulture); set.AggRun = Math.Max(2, set.AggRun); set.FirstDir = "AUTO"; set.NextStart = "BREAK"; }   // BREAK OF HIGH: an aggression run, the first opposite close, its high (buy) / low (sell) broken — your hedging untouched
             if (k == "CMP") set.CompressMode = "ALWAYS"; else if (k == "RNG") { set.RangeOnly = true; set.LockOn = false; } else if (k == "LKL") { set.LockOn = true; set.Unlock = "LEAD"; set.RangeOnly = true; } else if (k == "LKF") { set.LockOn = true; set.Unlock = "LIFT"; set.RangeOnly = true; }
             else if (k == "FX10") { set.HedgeMode = "PRICE"; set.HedgePrice = 10; set.HedgeCap = 0; set.RangeOnly = false; set.QuickHedge = false; set.CandleHedge = false; set.KeyHedge = false; set.TrendHedge = false; set.DdTightEvery = 0; set.BoxBars = 0; }
             else if (k == "NFB") { set.BoxBars = 30; }
             else if (k == "TST") { set.TrendStack = true; }
+            else if (k == "CNS") { set.ConsultMode = "SIM"; }   // 🧭 09r: the lane's engine gets the consult memory (RaceTab) and acts on its simulated account
             else if (k == "STP" || k == "DEF+STP") { set.StepIn = true; set.StepInRisk = 100; set.StepInFloor = 0; }   // 🚑 09n: the whole simulated account may be risked
             else if (k == "SW2") { set.HedgeTrigger = "SWING2"; set.SwN = 2; if (set.HedgeMode != "BREAK") set.HedgeMode = "BREAK"; }   // 🪜 09o
             else if (k == "RNA") set.RadarNoAdd = true; else if (k == "RLK") set.RadarLock = true; else if (k == "RBE") set.RadarBe = true; else if (k == "TAH") set.SlopeFilter = true; else if (k == "REC") { set.CompressMode = "ALWAYS"; set.BeLock = true; set.BeClose = true; }

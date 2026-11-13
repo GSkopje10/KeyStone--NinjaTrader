@@ -1,0 +1,92 @@
+// 🧭 CONSULT bench (mt5/docs/consult-study.md). Research only, in-memory SimBroker, never MT5.
+//   points  <variant> <from> <to> <bal> <out>        run the user's settings, record every hedge decision (case + features)
+//   measure <in> <out> <shard> <nshards>             replay the 5 options of each case → library points
+//   bench   <variant> <from> <to> <bal> <lib>         run with CONSULT acting (SIM) on the library (walk-forward by EndAt)
+//   track   <lib>                                    the library's own walk-forward track record
+// variant tokens: BCL (🔐 breakeven profit = CLOSE ALL, the user's), RG (RISK GUARD on), CNS (consult acts)
+using System; using System.Collections.Generic; using System.Globalization; using System.IO; using System.Linq; using KeystoneMT5;
+public static class Cb
+{
+    static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+    const string Data = "/home/user/keystone--ninjatrader/data/MGC";
+    public static SimSpec Spec() { return new SimSpec { Name = "XAUUSD", Digits = 2, Point = 0.01, Contract = 100, TickValue = 1, TickSize = 0.01, VolMin = 0.01, VolStep = 0.01, VolMax = 100, NyOffsetHours = -7, SwapLong = -62.4, SwapShort = 28.1, SwapMode = 1, Swap3Day = DayOfWeek.Wednesday }; }
+    static AutoSettings Settings(string v)
+    {
+        var s = AutoSettings.Load(string.Join(";", File.ReadAllLines("his.txt").Where(l => l.Contains("=")).Select(l => l.Trim())));
+        s.TrackManual = false; s.Windows = ""; s.OnManual = "ADOPT"; s.StepIn = false; var tk = v.Split('+');
+        if (tk.Contains("BCL")) { s.BeLock = true; s.BeClose = true; }
+        if (tk.Contains("RG")) s.RiskGuard = true;
+        s.ConsultMode = tk.Contains("CNS") ? "SIM" : "ADVISE";
+        return s;
+    }
+    static double lastWorstCall = 0; static int guardIter = -1;
+    static void Guard(SimBroker sb, HedgeAuto au)
+    {
+        if (au.Current == null) { if (!au.Running) au.GuardStep(sb, au.Set); return; }
+        if (au.Current.N != guardIter) { guardIter = au.Current.N; lastWorstCall = 0; au.GuardStep(sb, au.Set); return; }
+        double tot = au.LiveTotal().Item1;
+        if (tot >= au.Set.GuardKeep - 0.01 || tot < lastWorstCall - 5) { if (tot < lastWorstCall) lastWorstCall = tot; au.GuardStep(sb, au.Set); }
+    }
+    public static int Main(string[] a)
+    {
+        if (a[0] == "measure") return Measure(a);
+        if (a[0] == "track") { string n, t; var pts = ConsultMemory.ParseText(File.ReadAllText(a[1]), out n, out t); var tr = ConsultAdvisor.TrackOf(pts, pts.Where(p => p.At.Year >= 2021).ToList()); Console.WriteLine("TRACK " + tr.Text + " | points " + pts.Count); return 0; }
+        return Run(a);
+    }
+    static int Run(string[] a)
+    {
+        string v = a[1]; var from = DateTime.ParseExact(a[2], "yyyy-MM-dd", IC); var to = DateTime.ParseExact(a[3], "yyyy-MM-dd", IC); double bal = double.Parse(a[4], IC);
+        var bars = Gold.Load(Data, from, to); foreach (var b in bars) b.Spread = 25;
+        var s = Settings(v);
+        var sb = new SimBroker(); var err = sb.Load(new SimSettings { Symbol = "XAUUSD", From = from, To = to, Balance = bal, CommissionPerLot = 0, Leverage = 500, Kind = "STANDARD", FixedSpread = 25, StopOutPct = 50 }, Spec(), bars);
+        if (err != "") { Console.WriteLine("ERR " + err); return 1; }
+        var au = new HedgeAuto(); au.Send = (c, x, l) => sb.Command(c, x); au.StopOutPct = 50;
+        StreamWriter outp = null;
+        if (a[0] == "points") { outp = new StreamWriter(a[5]); au.OnConsultPoint += cc => { outp.WriteLine("C|" + cc.Point.Line() + "\t" + cc.Snap.Save()); }; }
+        if (a[0] == "bench") { string n, t; var pts = ConsultMemory.ParseText(File.ReadAllText(a[5]), out n, out t); var m = new ConsultMemory(); m.Add(pts); au.ConsultMem = m; Console.WriteLine("library " + pts.Count); }
+        sb.OnTickHook = () => { au.Step(sb); Guard(sb, au); };
+        var chk = au.Check(sb, s); if (chk != "") { Console.WriteLine(chk); return 1; }
+        au.Start(sb, s, false); sb.Playing = true; sb.Speed = 60;
+        int blowups = 0; double minEq = 1e9; var t0 = DateTime.Now;
+        for (long k = 0; k < 80000000 && !sb.Ended; k++)
+        {
+            sb.Advance(0.5); double eq, b1; int open; lock (sb.State.Gate) { eq = sb.State.Account.Equity; b1 = sb.State.Account.Balance; open = sb.State.Positions.Count; } minEq = Math.Min(minEq, eq);
+            bool broke = !au.Running && HedgeAuto.IsBlowReason(au.StopReason), low = open == 0 && b1 < 0.1 * bal;
+            if (broke || low)
+            {
+                if (open > 0) { sb.Command("CLOSEALL", "XAUUSD", "ALL"); continue; }
+                blowups++; lock (sb.State.Gate) sb.Account.SetBalance(bal, sb.State.ServerNow); if (au.Running) au.Stop("💥 restart"); if (au.Check(sb, s) == "") au.Start(sb, s, false);
+                Console.WriteLine("BLOW " + sb.State.ServerNow.ToString("yyyy-MM-dd HH:mm", IC) + " " + b1.ToString("0", IC));
+            }
+            if (!au.Running && !broke) { if (au.Check(sb, s) == "") au.Start(sb, s, true); }
+        }
+        if (outp != null) outp.Close();
+        var its = au.Iterations.Where(x => x.Done).ToList(); double net = its.Sum(x => x.Result);
+        double eqEnd; lock (sb.State.Gate) eqEnd = sb.State.Account.Equity;
+        Console.WriteLine(string.Join("\t", new object[] { "RES", v, a[2].Substring(0, 7), its.Count, its.Count(x => x.Result >= 0), net.ToString("0", IC), (minEq - bal).ToString("0", IC), blowups, its.Count(x => x.Reason == "HARD STOP"),
+            its.Count > 0 ? its.Min(x => x.MaxDd).ToString("0", IC) : "0", (DateTime.Now - t0).TotalSeconds.ToString("0", IC) + "s", "OPEN", au.Current != null ? au.LiveTotal().Item1.ToString("0", IC) : "0", "acts", au.ConsultActs }));
+        foreach (var g in au.Iterations.Where(x => x.Done && x.Reason.Contains("CONSULT")).GroupBy(x => x.Reason)) Console.WriteLine("REASON\t" + g.Key + "\t" + g.Count() + "\t" + g.Sum(x => x.Result).ToString("0", IC));
+        return 0;
+    }
+    static int Measure(string[] a)
+    {
+        var lines = File.ReadAllLines(a[1]); int shard = int.Parse(a[3]), n = int.Parse(a[4]); int hz = a.Length > 5 ? int.Parse(a[5]) : ConsultSim.HorizonMin;
+        var cases = new List<ConsultCase>();
+        for (int i = 0; i < lines.Length; i++) { if (i % n != shard) continue; var tab = lines[i].Split('\t'); var p = ConsultPoint.Parse(tab[0].Substring(2)); var c = WhatIfCase.Load(tab[1]); if (p != null && c != null) cases.Add(new ConsultCase { Point = p, Snap = c }); }
+        if (cases.Count == 0) return 0;
+        var done = new HashSet<string>(); if (File.Exists(a[2])) foreach (var l in File.ReadAllLines(a[2])) { var q = ConsultPoint.Parse(l); if (q != null) done.Add(q.At.Ticks + "|" + q.Iter); }
+        var byYear = new Dictionary<int, List<Mt5Bar>>(); var spec = Spec(); var t0 = DateTime.Now; int k = 0;
+        using (var w = new StreamWriter(a[2], true))
+            foreach (var cc in cases.OrderBy(c => c.Point.At))
+            {
+                if (done.Contains(cc.Point.At.Ticks + "|" + cc.Point.Iter)) continue;
+                int key = cc.Point.At.Year * 12 + cc.Point.At.Month;
+                if (!byYear.ContainsKey(key)) { byYear.Clear(); var bb = Gold.Load(Data, new DateTime(cc.Point.At.Year, cc.Point.At.Month, 1).AddDays(-3), new DateTime(cc.Point.At.Year, cc.Point.At.Month, 1).AddMonths(1).AddDays(4)); foreach (var b in bb) b.Spread = 25; byYear[key] = bb; }
+                cc.Snap.Spread = 25; cc.Snap.Kind = "STANDARD"; cc.Snap.Leverage = 500; cc.Snap.Commission = 0;
+                ConsultSim.Measure(cc, byYear[key], spec, hz); cc.Point.Src = "LIB"; w.WriteLine(cc.Point.Line()); w.Flush(); k++;
+                if (k % 50 == 0) Console.WriteLine(k + " / " + cases.Count + " " + (DateTime.Now - t0).TotalSeconds.ToString("0") + "s");
+            }
+        Console.WriteLine("DONE " + k + " " + (DateTime.Now - t0).TotalSeconds.ToString("0") + "s");
+        return 0;
+    }
+}

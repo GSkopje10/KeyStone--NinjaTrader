@@ -43,10 +43,12 @@ namespace KeystoneMT5
         public static readonly Tuple<string, int>[] Spans = { Tuple.Create("1 week", 7), Tuple.Create("1 month", 31), Tuple.Create("3 months", 92), Tuple.Create("6 months", 183), Tuple.Create("12 months", 365), Tuple.Create("as far back as the broker has", 3650) };
         public static bool Trading(DateTime d) { return d.DayOfWeek != DayOfWeek.Saturday && d.DayOfWeek != DayOfWeek.Sunday; }
         // the days to fetch, NEWEST first: trading days from `today − 1` back `spanDays`, without the days already saved / known empty / older than the broker's limit
-        public static List<DateTime> Days(string sym, DateTime today, int spanDays, ITickStore store, out int skipped)
+        public static List<DateTime> Days(string sym, DateTime today, int spanDays, ITickStore store, out int skipped) { return Days(sym, today.Date.AddDays(-spanDays), today.Date.AddDays(-1), store, out skipped); }
+        // the same for a FROM → TO range (📥 DATA STUDIO), newest first
+        public static List<DateTime> Days(string sym, DateTime from, DateTime to, ITickStore store, out int skipped)
         {
             var r = new List<DateTime>(); skipped = 0; var lim = store.Limit(sym);
-            for (var d = today.Date.AddDays(-1); d >= today.Date.AddDays(-spanDays); d = d.AddDays(-1))
+            for (var d = to.Date; d >= from.Date; d = d.AddDays(-1))
             {
                 if (!Trading(d)) continue;
                 if (lim > DateTime.MinValue && d < lim) continue;
@@ -60,13 +62,16 @@ namespace KeystoneMT5
     public sealed class TickDownloader
     {
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
-        readonly ITickSource src; readonly ITickStore store; readonly List<string> syms; readonly int span, emptyStop; readonly DateTime today;
+        readonly ITickSource src; readonly ITickStore store; readonly List<string> syms; readonly int emptyStop; readonly DateTime from, to;
         List<DateTime> days = new List<DateTime>(); int si = -1, di, tries, timeouts, emptyRun; bool waiting; DateTime askedAt, retryAt, started, lastEmptyFrom;
         public string Status = "", Symbol = ""; public bool Done, Cancelled; public int Saved, Skipped, Empty, NotDelivered, TotalDays, DoneDays; public long TickCount;
         public readonly List<string> Limits = new List<string>(); public readonly List<DateTime> NewDays = new List<DateTime>();
         public double TimeoutSec = 45; public int MaxTries = 3;
         public TickDownloader(ITickSource src, ITickStore store, IEnumerable<string> symbols, int spanDays, DateTime today, int emptyStop = 5)
-        { this.src = src; this.store = store; syms = symbols.Distinct(StringComparer.OrdinalIgnoreCase).ToList(); span = spanDays; this.today = today; this.emptyStop = Math.Max(1, emptyStop); }
+            : this(src, store, symbols, today.Date.AddDays(-spanDays), today.Date.AddDays(-1), emptyStop, today) { }
+        // 📥 DATA STUDIO: a FROM → TO range (today itself is never asked: it is still running)
+        public TickDownloader(ITickSource src, ITickStore store, IEnumerable<string> symbols, DateTime from, DateTime to, int emptyStop = 5, DateTime? today = null)
+        { this.src = src; this.store = store; syms = symbols.Distinct(StringComparer.OrdinalIgnoreCase).ToList(); this.from = from.Date; var lastOk = (today ?? DateTime.Today).Date.AddDays(-1); this.to = to.Date > lastOk ? lastOk : to.Date; this.emptyStop = Math.Max(1, emptyStop); }
         public double Progress { get { return TotalDays == 0 ? (Done ? 1 : 0) : Math.Min(1, (double)DoneDays / TotalDays); } }
         // the estimated time left from the pace so far
         public TimeSpan? Eta(DateTime now) { if (DoneDays < 2 || TotalDays <= DoneDays) return null; double per = (now - started).TotalSeconds / DoneDays; return TimeSpan.FromSeconds(per * (TotalDays - DoneDays)); }
@@ -74,7 +79,7 @@ namespace KeystoneMT5
         public void Cancel() { if (Done) return; Cancelled = true; Done = true; Status = "■ cancelled — " + Saved + " day(s) saved. Press ⬇ DOWNLOAD REAL TICKS again to go on: the saved days are skipped."; }
         bool NextSymbol()
         {
-            si++; if (si >= syms.Count) return false; Symbol = syms[si]; int sk; days = TickPlan.Days(Symbol, today, span, store, out sk); Skipped += sk; di = 0; emptyRun = 0; tries = 0; timeouts = 0; waiting = false;
+            si++; if (si >= syms.Count) return false; Symbol = syms[si]; int sk; days = TickPlan.Days(Symbol, from, to, store, out sk); Skipped += sk; di = 0; emptyRun = 0; tries = 0; timeouts = 0; waiting = false;
             TotalDays += days.Count; return true;
         }
         void Finish()

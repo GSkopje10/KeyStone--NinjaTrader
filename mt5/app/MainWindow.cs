@@ -19,7 +19,7 @@ namespace KeystoneMT5
     public sealed partial class MainWindow : Window
     {
         public const string Build13qNews = "🔐 BREAKEVEN PROFIT now CLOSES ALL at the keep level — LOCK stays a choice and unlocks on the break • ⏸ a small AUTOMATION PAUSED card when a trade by hand stops it • 🎨 red only for negative numbers";
-        public const string Build = "SpasiX • BUILD 2026-11-13r";   // 13r: ⬇ DOWNLOAD REAL TICKS ▾ in 🧪 BACKTEST (months of MT5's real ticks, background, resumable, ■ CANCEL, the broker's limit said plainly) • 📦 EXPORT TICKS FOR CLAUDE (one compact .sxt.gz per month, ≥ 5 × smaller, the size shown first) + EXPORT FOR CLAUDE can include every downloaded tick day. 09q: 🔐 BREAKEVEN PROFIT CLOSES ALL at the keep level by default (user's request; a basket already frozen at net 0 in profit is banked) • the LOCK choice is unlocked by the price (LEAD / LIFT) + truthful UNLOCK labels • ⏸ AUTOMATION PAUSED popup (once per stop by hand, 🛡 OPEN HEDGE TAB never resumes) • 🎨 red only for negative values (EQUITY green when positive). 09p: ⏰ NO NEW TRADES BEFORE THE 17:00 NY CLOSE (DEFENDER: 45 min) • 🌙 close at the close only if ≥ breakeven (optional) • ⭐ 13p RECOMMENDED (RISK GUARD + ⏰) • 💵 DEMO costs per account • 09o: 🪜 2ND-SWING HEDGE (a hedge trigger: in drawdown the hedge at the break of the 2nd swing low / high after the entry, the flip back at the last swing; LEAD stays the default) • 09n: 🚑 STEP IN (the iteration handed to a trend-stacking manager when a basket is deep; simulated = may blow, MT5 = opt-in, typed STEP IN)
+        public const string Build = "SpasiX • BUILD 2026-11-13s";   // 13s: 🧭 HISTORY CONSULT (each hedge decision compared with the similar past decisions — your real ticks first, the 6-year library only as an estimate; ADVISE by default, ACT on simulated / typed CONSULT on MT5; 🏁 lane CNS; 🧭 BUILD FROM MY TICKS) • 💸 WITHDRAWAL PLAN statistic (DEMO books, MT5 tracks + reminds). 13r: ⬇ DOWNLOAD REAL TICKS ▾ in 🧪 BACKTEST (months of MT5's real ticks, background, resumable, ■ CANCEL, the broker's limit said plainly) • 📦 EXPORT TICKS FOR CLAUDE (one compact .sxt.gz per month, ≥ 5 × smaller, the size shown first) + EXPORT FOR CLAUDE can include every downloaded tick day. 09q: 🔐 BREAKEVEN PROFIT CLOSES ALL at the keep level by default (user's request; a basket already frozen at net 0 in profit is banked) • the LOCK choice is unlocked by the price (LEAD / LIFT) + truthful UNLOCK labels • ⏸ AUTOMATION PAUSED popup (once per stop by hand, 🛡 OPEN HEDGE TAB never resumes) • 🎨 red only for negative values (EQUITY green when positive). 09p: ⏰ NO NEW TRADES BEFORE THE 17:00 NY CLOSE (DEFENDER: 45 min) • 🌙 close at the close only if ≥ breakeven (optional) • ⭐ 13p RECOMMENDED (RISK GUARD + ⏰) • 💵 DEMO costs per account • 09o: 🪜 2ND-SWING HEDGE (a hedge trigger: in drawdown the hedge at the break of the 2nd swing low / high after the entry, the flip back at the last swing; LEAD stays the default) • 09n: 🚑 STEP IN (the iteration handed to a trend-stacking manager when a basket is deep; simulated = may blow, MT5 = opt-in, typed STEP IN)
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -49,6 +49,8 @@ namespace KeystoneMT5
         static void SaveSet() { try { Directory.CreateDirectory(Dir); File.WriteAllLines(SetFile, set.Select(kv => kv.Key + "=" + kv.Value)); } catch { } }
         string Get(string k, string d) { string v; return set.TryGetValue(k, out v) ? v : d; }
         void Put(string k, string v) { string o; if (set.TryGetValue(k, out o) && o == v) return; set[k] = v; SaveSet(); }
+        public static string GetSetting(string k, string d) { LoadSet(); string v; return set.TryGetValue(k, out v) ? v : d; }   // 📥 13s: the DATA STUDIO window
+        public static void PutSetting(string k, string v) { LoadSet(); string o; if (set.TryGetValue(k, out o) && o == v) return; set[k] = v; SaveSet(); }
         public static string SGet(string k, string d) { LoadSet(); string v; return set.TryGetValue(k, out v) ? v : d; }
         public static void SPut(string k, string v) { LoadSet(); string o; if (set.TryGetValue(k, out o) && o == v) return; set[k] = v; SaveSet(); }
         public Button Pill(string t, Brush bg) { return Sx.Pill(t, bg); }
@@ -62,7 +64,7 @@ namespace KeystoneMT5
             var lg = Logo(); if (lg != null) Icon = lg; Sx.DarkTitle(this);
             var ts = Environment.GetEnvironmentVariable("SPASIX_TEST_SIZE"); if (!string.IsNullOrEmpty(ts) && ts.Contains("x")) { WindowState = WindowState.Normal; WindowStartupLocation = WindowStartupLocation.Manual; Left = 0; Top = 0; Width = double.Parse(ts.Split('x')[0], IC); Height = double.Parse(ts.Split('x')[1], IC); }
             LoadSet(); LoadDrawings(); streamMode = Get("stream", "0") == "1";
-            rootGrid = new Grid(); Content = Shell.Chrome(this, mode, rootGrid);
+            rootGrid = new Grid(); Content = Shell.Chrome(this, mode, rootGrid); Shell.LookCtx[this] = LookCtxNow;   // 🍂 13s: what this window's header line knows
             rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             headerEl = BuildHeader(); Grid.SetRow(headerEl, 0); rootGrid.Children.Add(headerEl);
             var host = new Grid { Margin = new Thickness(10, 6, 10, 6) }; Grid.SetRow(host, 1); rootGrid.Children.Add(host);
@@ -323,6 +325,7 @@ namespace KeystoneMT5
                 setupSteps.Children.Add(new Border { Background = Card, CornerRadius = new CornerRadius(12), Padding = new Thickness(12, 10, 12, 10), BorderBrush = Line, BorderThickness = new Thickness(1), Child = g, Margin = new Thickness(0, 0, 0, 8) });
             }
             sp.Children.Add(AiSetupCard());   // 🧠 09i: the Anthropic API key (encrypted), TEST CONNECTION, spend, caps
+            sp.Children.Add(LookCard());   // 🍂 13s: the seasons look
             sp.Children.Add(DataFolderCard());
             return new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = sp };
         }
