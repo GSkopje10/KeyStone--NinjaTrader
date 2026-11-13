@@ -1,0 +1,69 @@
+# withdrawal-plan study: aggregates the WithdrawBench outputs (EV / DAY / IT / RES lines) — mt5/docs/withdrawal-plan-study.md
+import sys, glob, os, statistics as st
+from datetime import datetime as D
+
+def parse(f):
+    ev, its, days, res = [], [], [], None
+    for l in open(f, encoding='utf-8'):
+        x = l.rstrip('\n').split('\t')
+        if x[0] == 'EV': ev.append(x)
+        elif x[0] == 'IT': its.append(x)
+        elif x[0] == 'DAY': days.append(x)
+        elif x[0] == 'RES': res = x
+    return ev, its, days, res
+
+def t(s): return D.strptime(s, '%Y-%m-%d %H:%M')
+
+def kv(x, key):
+    for f in x:
+        if f.startswith(key): return float(f[len(key):].split()[0])
+    return None
+
+def summary(f):
+    ev, its, days, res = parse(f)
+    if res is None: return None
+    deps = [e for e in ev if e[1] == 'DEP']; wds = [e for e in ev if e[1] == 'WD']; blows = [e for e in ev if e[1] == 'BLOW']; hards = [e for e in ev if e[1] == 'HARD']
+    end = [e for e in ev if e[1] == 'END'][0]
+    dep = 5000 * len(deps); wd = sum(float(e[3]) for e in wds); left = sum(float(e[3]) for e in blows); endEq = float(end[3])
+    # cycles: start at DEP / WD, end at WD (✔) / BLOW (✖) / END (open)
+    cyc = []; cs = t(deps[0][2])
+    for e in ev:
+        if e[1] in ('WD', 'BLOW', 'END'):
+            cyc.append(dict(start=cs, end=t(e[2]), kind=e[1], minEq=kv(e, 'cycle min equity '), ptt=kv(e, 'peak-to-trough ')))
+            cs = t(e[2])
+    # a BLOW is followed by a DEP at the same time: fine (cs = blow time)
+    dW = [(c['end'] - c['start']).days for c in cyc if c['kind'] == 'WD']
+    dB = [(c['end'] - c['start']).days for c in cyc if c['kind'] == 'BLOW']
+    marks = [t(deps[0][2])] + [t(e[2]) for e in wds] + [t(end[2])]
+    gaps = [(marks[i + 1] - marks[i]).days for i in range(len(marks) - 1)]
+    worstDepth = max((5000 - c['minEq']) / 50 for c in cyc if c['minEq'] is not None)
+    worstPtt = max(c['ptt'] / 50 for c in cyc if c['ptt'] is not None)
+    # per year
+    yrs = {}
+    for e in ev:
+        y = e[2][:4]; r = yrs.setdefault(y, dict(wd=0, wdn=0, blow=0, dep=0, left=0, hard=0))
+        if e[1] == 'WD': r['wd'] += float(e[3]); r['wdn'] += 1
+        if e[1] == 'BLOW': r['blow'] += 1; r['left'] += float(e[3])
+        if e[1] == 'DEP': r['dep'] += 5000
+        if e[1] == 'HARD': r['hard'] += 1
+    yend = {}
+    for d in days: yend[d[1][:4]] = float(d[3])
+    for x in its:
+        y = x[3][:4]; r = yrs.setdefault(y, dict(wd=0, wdn=0, blow=0, dep=0, left=0, hard=0)); r['it'] = r.get('it', 0) + 1
+    return dict(f=os.path.basename(f), deps=len(deps), blows=len(blows), wdn=len(wds), wd=wd, left=left, dep=dep, endEq=endEq, endOpen=end[4],
+                net=wd + left - dep, netAll=wd + left - dep + endEq, cyc=cyc, dW=dW, dB=dB, gaps=gaps, worstDepth=worstDepth, worstPtt=worstPtt,
+                yrs=yrs, yend=yend, hard=len(hards), its=len(its), res=res, openSince=[r for r in res if r.startswith('open since')][0],
+                wdOpen=sum(1 for e in wds if not e[4].startswith('flat')))
+
+def med(a): return st.median(a) if a else float('nan')
+
+if __name__ == '__main__':
+    files = sorted(glob.glob(sys.argv[1] + '/*.txt'))
+    for f in files:
+        s = summary(f)
+        if s is None: print(os.path.basename(f), 'RUNNING'); continue
+        print(f"{s['f']:34s} deps {s['deps']:2d} (blow {s['blows']:2d}) wd {s['wdn']:2d} (open {s['wdOpen']}) ${s['wd']:9,.0f} left ${s['left']:7,.0f} dep ${s['dep']:7,.0f} NET CASH ${s['net']:9,.0f} end eq ${s['endEq']:7,.0f} {s['endOpen']} → incl ${s['netAll']:9,.0f} | to WD med {med(s['dW'])} worst {max(s['dW']) if s['dW'] else '-'} d | to blow med {med(s['dB'])} min {min(s['dB']) if s['dB'] else '-'} d | longest no-WD {max(s['gaps'])} d | worst depth {s['worstDepth']:.0f}% ptt {s['worstPtt']:.0f}% | hard {s['hard']} its {s['its']} | {s['openSince']} {s['res'][-1]}")
+        if len(sys.argv) > 2:
+            for y in sorted(s['yrs']):
+                r = s['yrs'][y]; print(f"   {y}: wd {r['wdn']} ${r['wd']:,.0f} | blow {r['blow']} (left ${r['left']:,.0f}) | deposits ${r['dep']:,.0f} | net cash ${r['wd'] + r['left'] - r['dep']:,.0f} | hard {r['hard']} | its {r.get('it', 0)} | year-end equity ${s['yend'].get(y, float('nan')):,.0f}")
+            for c in s['cyc']: print(f"     {c['start']:%Y-%m-%d} → {c['end']:%Y-%m-%d} {c['kind']:4s} {(c['end'] - c['start']).days:4d} d  min eq ${c['minEq']:,.0f}  ptt ${c['ptt']:,.0f}")

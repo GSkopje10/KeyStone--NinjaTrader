@@ -1,0 +1,97 @@
+// withdrawal-plan bench (mt5/docs/withdrawal-plan-study.md): the user's plan "leave the current settings until the account blows or the 100 % is made:
+// at $10K withdraw and reset to $5K; a blow-up = a new $5K deposit" on ONE continuous run of the 6-year 1-minute gold (data/MGC as XAUUSD).
+// The same harness as Iter23Bench: the app's own HedgeAuto on the BACKTEST SimBroker, Step + GuardStep + ProtectStep per tick, spread 0.25,
+// the swap assumption (long −62.4 / short +28.1 points per lot, triple Wednesday), no commission, 1:500, stop-out 50 %. Research only: never MT5.
+// Console project: mt5/app/{Bridge,Bars,Sim,SimAccount,PoolStore,HedgeLab,HedgeAuto,TradeWatch,DayLab,SetupScan,Race,ManualTrack,TrendStack,StepIn,
+// SwingHedge,AddProtect,TickRecorder,Radar,WhatIf,Continuity,HedgeDecode,PostMortem,DataDir}.cs + study/Gold.cs + this file; his.txt = the export's 01-settings.txt.
+// usage: dotnet wd.dll <variant> <from yyyy-MM-dd> <to yyyy-MM-dd>
+// variant tokens joined by '+':
+//   LEAD (the export as-is: 🔐 BREAKEVEN PROFIT = LOCK) | CL (🔐 BREAKEVEN PROFIT = CLOSE ALL, 13q's default and the user's setting now) | RG (🛡 RISK GUARD LOCK, the 13p recommendation) | NE45 (⏰ no new iteration 16:15–17:00 NY)
+//   P1K (💰 0.01 lot per $1,000 of the live balance, $200 / lot target — the DEFENDER preset's sizing; the export has sz1k=0 = fixed 0.1 lot / $50)
+//   W100 (withdraw at $10,000) | W50 (at $7,500) — the balance above $5,000 is withdrawn, the account continues at $5,000
+//   OPEN (withdraw also with a basket open: equity AND balance ≥ the level; only the balance above $5,000 leaves; the iteration's start balance is
+//         moved by the same amount so the engine's basket total stays right) — default: only while FLAT (no position)
+//   BL50 (a "blow-up" also = flat with the balance under $2,500) — default: the app's 💥 AUTO RESTART rule (stopped for no money / margin / stop-out,
+//         or flat under 10 % of the start = $500)
+// output: EV lines (DEP / WD / BLOW / HARD), DAY lines (date, balance, equity, open lots), IT lines, RES line
+using System; using System.Collections.Generic; using System.Globalization; using System.IO; using System.Linq; using KeystoneMT5;
+
+public static class P
+{
+    static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+    const double Start = 5000;
+    static SimSpec Spec() { return new SimSpec { Name = "XAUUSD", Digits = 2, Point = 0.01, Contract = 100, TickValue = 1, TickSize = 0.01, VolMin = 0.01, VolStep = 0.01, VolMax = 100, NyOffsetHours = -7, SwapLong = -62.4, SwapShort = 28.1, SwapMode = 1, Swap3Day = DayOfWeek.Wednesday }; }
+    static AutoSettings Settings(string[] tk, string his)
+    {
+        var s = AutoSettings.Load(string.Join(";", File.ReadAllLines(his).Where(l => l.Contains("=")).Select(l => l.Trim())));
+        s.TrackManual = false; s.Windows = ""; s.OnManual = "ADOPT"; s.StepIn = false;
+        if (tk.Contains("RG")) s.RiskGuard = true;
+        if (tk.Contains("CL")) s.BeClose = true;   // 13q: 🔐 AT THE BREAKEVEN LINE = CLOSE ALL (the user's setting now); without CL = the export's LOCK (beclose=0)
+        if (tk.Contains("NE45")) s.Windows = "18:00-16:15";
+        if (tk.Contains("P1K")) { s.SizePer1k = 0.01; s.TargetPerLot = 200; }
+        return s;
+    }
+    static double lastWorstCall = 0; static int guardIter = -1;
+    static void Guard(SimBroker sb, HedgeAuto au)
+    {   // as Iter23Bench: the guard every tick when it can matter
+        if (au.Current == null) { if (!au.Running) { au.GuardStep(sb, au.Set); au.ProtectStep(sb, au.Set); } return; }
+        if (au.Current.N != guardIter) { guardIter = au.Current.N; lastWorstCall = 0; au.GuardStep(sb, au.Set); return; }
+        double tot = au.LiveTotal().Item1;
+        if (tot >= au.Set.GuardKeep - 0.01 || tot < lastWorstCall - 5) { if (tot < lastWorstCall) lastWorstCall = tot; au.GuardStep(sb, au.Set); }
+    }
+
+    public static int Main(string[] a)
+    {
+        string v = a[0]; var tk = v.Split('+'); var from = DateTime.ParseExact(a[1], "yyyy-MM-dd", IC); var to = DateTime.ParseExact(a[2], "yyyy-MM-dd", IC);
+        double level = tk.Contains("W50") ? 7500 : 10000; bool openW = tk.Contains("OPEN"); double blowBal = tk.Contains("BL50") ? 2500 : 0.1 * Start;
+        var bars = Gold.Load("/home/user/keystone--ninjatrader/data/MGC", from, to); foreach (var b in bars) b.Spread = 25;
+        var s = Settings(tk, "his.txt");
+        RadarModel.Default = RadarModel.Parse(File.ReadAllText("/home/user/keystone--ninjatrader/mt5/app/danger-model.txt"));
+        var sb = new SimBroker(); var err = sb.Load(new SimSettings { Symbol = "XAUUSD", From = from, To = to, Balance = Start, CommissionPerLot = 0, Leverage = 500, Kind = "STANDARD", FixedSpread = 25, StopOutPct = 50 }, Spec(), bars);
+        if (err != "") { Console.WriteLine("ERR " + err); return 1; }
+        var au = new HedgeAuto(); au.RadarWfYear = 1; au.Send = (c, x, l) => sb.Command(c, x); au.StopOutPct = 50;
+        sb.OnTickHook = () => { au.Step(sb); Guard(sb, au); };
+        var chk = au.Check(sb, s); if (chk != "") { Console.WriteLine(chk); return 1; }
+        au.Start(sb, s, false); sb.Playing = true; sb.Speed = 60;
+        var t0 = DateTime.Now; DateTime lastDay = DateTime.MinValue; int hardSeen = 0;
+        Console.WriteLine("EV\tDEP\t" + from.ToString("yyyy-MM-dd HH:mm", IC) + "\t" + Start.ToString("0", IC) + "\t0");
+        double dayMinEq = 1e9, dayMaxEq = -1e9, cMin = Start, cPeak = Start, cPtT = 0;
+        Func<string> cyc = () => "\tcycle min equity " + cMin.ToString("0.00", IC) + "\tpeak-to-trough " + cPtT.ToString("0.00", IC);
+        Action cycReset = () => { cMin = Start; cPeak = Start; cPtT = 0; };
+        for (long k = 0; k < 200000000 && !sb.Ended; k++)
+        {
+            sb.Advance(0.5); double eq, b1, lots; int open; DateTime now;
+            lock (sb.State.Gate) { eq = sb.State.Account.Equity; b1 = sb.State.Account.Balance; open = sb.State.Positions.Count; lots = sb.State.Positions.Sum(p => p.Lots); now = sb.State.ServerNow; }
+            dayMinEq = Math.Min(dayMinEq, eq); dayMaxEq = Math.Max(dayMaxEq, eq); cMin = Math.Min(cMin, eq); cPeak = Math.Max(cPeak, eq); cPtT = Math.Max(cPtT, cPeak - eq);
+            if (now.Date != lastDay) { if (lastDay != DateTime.MinValue) Console.WriteLine("DAY\t" + lastDay.ToString("yyyy-MM-dd", IC) + "\t" + b1.ToString("0.00", IC) + "\t" + eq.ToString("0.00", IC) + "\t" + lots.ToString("0.00", IC) + "\t" + dayMinEq.ToString("0.00", IC) + "\t" + dayMaxEq.ToString("0.00", IC)); lastDay = now.Date; dayMinEq = dayMaxEq = eq; }
+            // hard stops (logged, not a blow-up by themselves)
+            int hs = au.Iterations.Count(x => x.Done && x.Reason == "HARD STOP");
+            if (hs > hardSeen) { hardSeen = hs; var x = au.Iterations.Last(y => y.Done && y.Reason == "HARD STOP"); Console.WriteLine("EV\tHARD\t" + x.End.ToString("yyyy-MM-dd HH:mm", IC) + "\t" + x.Result.ToString("0.00", IC) + "\t" + b1.ToString("0.00", IC)); }
+            bool broke = !au.Running && HedgeAuto.IsBlowReason(au.StopReason), low = open == 0 && b1 < blowBal;
+            if (broke || low)
+            {
+                if (open > 0) { sb.Command("CLOSEALL", "XAUUSD", "ALL"); continue; }
+                double left = b1; // the money left in the blown account goes back to the user; a fresh $5,000 is deposited
+                lock (sb.State.Gate) sb.Account.SetBalance(Start, now);
+                Console.WriteLine("EV\tBLOW\t" + now.ToString("yyyy-MM-dd HH:mm", IC) + "\t" + left.ToString("0.00", IC) + "\t" + (broke ? "stopped: " + au.StopReason.Replace("\t", " ") : "flat under $" + blowBal.ToString("0", IC)) + cyc()); cycReset();
+                Console.WriteLine("EV\tDEP\t" + now.ToString("yyyy-MM-dd HH:mm", IC) + "\t" + Start.ToString("0", IC) + "\t" + left.ToString("0.00", IC));
+                if (au.Running) au.Stop("💥 restart"); if (au.Check(sb, s) == "") au.Start(sb, s, false);
+                continue;
+            }
+            // 💸 the withdrawal
+            if (b1 >= level && (open == 0 || (openW && eq >= level)))
+            {
+                double amt = Math.Round(b1 - Start, 2);
+                lock (sb.State.Gate) sb.Account.SetBalance(Start, now);
+                if (open > 0 && au.Current != null && !au.Current.Done) au.Current.BalanceStart -= amt;   // the balance deal is not the basket's
+                Console.WriteLine("EV\tWD\t" + now.ToString("yyyy-MM-dd HH:mm", IC) + "\t" + amt.ToString("0.00", IC) + "\t" + (open > 0 ? "open " + (eq - b1).ToString("0.00", IC) + " " + lots.ToString("0.00", IC) + " lots" : "flat") + cyc()); cycReset(); cMin = cPeak = eq - amt;
+            }
+            if (!au.Running && !broke) { if (au.Check(sb, s) == "") au.Start(sb, s, true); }
+        }
+        double eqE, balE; int openE; lock (sb.State.Gate) { eqE = sb.State.Account.Equity; balE = sb.State.Account.Balance; openE = sb.State.Positions.Count; }
+        Console.WriteLine("EV\tEND\t" + to.ToString("yyyy-MM-dd HH:mm", IC) + "\t" + eqE.ToString("0.00", IC) + "\t" + (openE > 0 ? "open" : "flat") + cyc());
+        foreach (var x in au.Iterations.Where(x => x.Done)) Console.WriteLine(string.Join("\t", new object[] { "IT", x.N, x.Start.ToString("yyyy-MM-dd HH:mm", IC), x.End.ToString("yyyy-MM-dd HH:mm", IC), x.AddOns, x.MaxGross.ToString("0.00", IC), x.MaxDd.ToString("0", IC), x.Result.ToString("0.00", IC), x.Reason.Replace("\t", " "), x.BalanceStart.ToString("0", IC) }));
+        Console.WriteLine(string.Join("\t", new object[] { "RES", v, a[1], a[2], "end balance " + balE.ToString("0.00", IC), "end equity " + eqE.ToString("0.00", IC), "open positions " + openE, "open since " + (au.Current != null ? au.Current.Start.ToString("yyyy-MM-dd", IC) : "-"), "iters " + au.Iterations.Count(x => x.Done), (DateTime.Now - t0).TotalSeconds.ToString("0", IC) + "s" }));
+        return 0;
+    }
+}
