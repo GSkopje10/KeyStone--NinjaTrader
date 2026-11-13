@@ -632,6 +632,19 @@ public static class UiSmokeTest
                         click(apGo); all.Clear(); walk(liveWin.Content); if (btn("■ STOP AUTOPILOT") != null) throw new Exception("🤖 the autopilot started without accounts / ARM / START");
                         click(btn("◀ CHART"));
                         Console.WriteLine("      🤖 AUTOPILOT view: title, ▶ START AUTOPILOT refused without accounts (nothing sent), back to the chart: OK");
+                        {   // 📰 13o NEWS FLATTEN: a TPT FUNDED account connected → the strip chip shows; no calendar this week → the red "protection NOT active" warning, nothing sent
+                            var tptN = new NinjaTrader.Cbi.Account { Name = "TAKEPROFITPRO777000111", Connection = new object() }; NinjaTrader.Cbi.Account.All.Add(tptN);
+                            var nbN = lab2.GetType().GetNestedType("NinjaBroker", BindingFlags.NonPublic).GetField("Made", BindingFlags.Static | BindingFlags.Public); int madeN0 = (int)nbN.GetValue(null);
+                            System.Windows.Threading.DispatcherTimer nfTm; lock (System.Windows.Threading.DispatcherTimer.All) nfTm = System.Windows.Threading.DispatcherTimer.All.LastOrDefault(t9 => "newsflatten".Equals(t9.Tag) && t9.IsEnabled);
+                            if (nfTm == null) throw new Exception("📰 the NEWS FLATTEN timer is missing"); nfTm.Fire(); all.Clear(); walk(liveWin.Content);
+                            var nfB = all.OfType<System.Windows.Controls.Button>().FirstOrDefault(b9 => Convert.ToString(b9.Content).StartsWith("📰 NEWS FLATTEN"));
+                            if (nfB == null || nfB.Visibility != System.Windows.Visibility.Visible) throw new Exception("📰 the NEWS FLATTEN chip is missing / hidden with a TPT funded account");
+                            string nfTx = Convert.ToString(nfB.Content); bool calOkN = KeystoneNewsFlatten.CalendarOk; if (!calOkN && !nfTx.StartsWith("📰 NEWS FLATTEN: calendar unavailable — protection NOT active")) throw new Exception("📰 no calendar but no red warning: " + nfTx);
+                            if (!KeystoneNewsFlatten.Protected("TAKEPROFITPRO777000111") || KeystoneNewsFlatten.Protected("Sim101")) throw new Exception("📰 the scope is wrong (TPT funded protected, Sim101 never)");
+                            if ((int)nbN.GetValue(null) != madeN0) throw new Exception("📰 NEWS FLATTEN built a NinjaBroker");
+                            NinjaTrader.Cbi.Account.All.Remove(tptN); nfTm.Fire();
+                            Console.WriteLine("      📰 13o NEWS FLATTEN: the TPT funded account protected, the chip \"" + nfTx + "\", no NinjaBroker: OK");
+                        }
                         {   // 🧾 BUILD 11t: EXECUTIONS = the per-account trade journal from NinjaTrader's executions (the user's TPT funded day): account selector,
                             // iterations with their real fees (not gross − realized), the legs + the snapshot on a click, the day file — nothing sent
                             var tpt = new NinjaTrader.Cbi.Account { Name = "TAKEPROFITPRO382305483", Connection = new object() }; tpt.StubValues[NinjaTrader.Cbi.AccountItem.NetLiquidation] = 51680; tpt.StubValues[NinjaTrader.Cbi.AccountItem.RealizedProfitLoss] = 357.75; tpt.StubValues[NinjaTrader.Cbi.AccountItem.GrossRealizedProfitLoss] = 1725.50;

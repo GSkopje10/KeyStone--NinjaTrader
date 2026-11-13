@@ -887,6 +887,91 @@ public static class AccountLinkTests
             }
             KeystoneNtLockout.Clear();
         }
+        // ================= 📰 13o NEWS FLATTEN: TPT FUNDED accounts closed 5 min before red-folder news, no new entries until 2 min after (closes / cancels only) =================
+        {
+            KeystoneNewsFlatten.Clear(); var nyNowT = new DateTime(2026, 10, 6, 8, 0, 0); KeystoneNewsFlatten.NyClock = () => nyNowT;
+            string fund = "TAKEPROFITPRO999531172", eval = "TAKEPROFIT104385428", luc = "LUCIDLFP12345", sim = "Sim101";
+            Func<string, string, bool> scoped = (acc, ov) => { var f = KeystoneFirmNames.Detect(acc, "")[0]; return KeystoneNewsFlatten.InScope(acc, f, KeystoneNewsFlatten.StageOf(acc, f, ov)); };
+            Check(scoped(fund, null) && !scoped(eval, null) && !scoped(luc, null) && !scoped(sim, null) && !scoped(fund, "EVAL") && scoped(eval, "FUNDED"),
+                "📰 scope = TPT AND FUNDED only (TPT eval, Lucid funded, Sim101 untouched; the saved EVAL / FUNDED override wins)");
+            var cal = new List<KeystoneNewsEvent> {
+                new KeystoneNewsEvent { Time = nyNowT.AddMinutes(30), Title = "CPI m/m", Currency = "USD", Impact = "HIGH" },
+                new KeystoneNewsEvent { Time = nyNowT.AddMinutes(30), Title = "Core CPI m/m", Currency = "USD", Impact = "HIGH" },
+                new KeystoneNewsEvent { Time = nyNowT.AddMinutes(33), Title = "Unemployment Claims", Currency = "USD", Impact = "HIGH" },
+                new KeystoneNewsEvent { Time = nyNowT.AddMinutes(90), Title = "ISM", Currency = "USD", Impact = "HIGH" },
+                new KeystoneNewsEvent { Time = nyNowT.AddMinutes(60), Title = "German ZEW", Currency = "EUR", Impact = "HIGH" },
+                new KeystoneNewsEvent { Time = nyNowT.AddMinutes(70), Title = "Crude", Currency = "USD", Impact = "MEDIUM" } };
+            var wins = KeystoneNewsFlatten.Windows(cal, nyNowT.AddHours(-1), nyNowT.AddDays(1));
+            Check(wins.Count == 2 && wins[0].Start == nyNowT.AddMinutes(25) && wins[0].End == nyNowT.AddMinutes(35) && wins[0].Title.Contains("CPI m/m 08:30") && wins[0].Title.Contains("Unemployment Claims 08:33") && wins[1].Start == nyNowT.AddMinutes(85),
+                "📰 windows: T − 5 → T + 2 for USD HIGH only (EUR / MEDIUM ignored), touching events merge into ONE window", string.Join(" | ", wins.Select(x => x.Start.ToString("HH:mm") + "-" + x.End.ToString("HH:mm") + " " + x.Title)));
+            KeystoneNewsFlatten.Publish(wins, KeystoneNewsFlatten.Covers(cal, nyNowT), new[] { fund, "TPT-OFF-PRO1" }); KeystoneNewsFlatten.Off.Add("TPT-OFF-PRO1");
+            nyNowT = new DateTime(2026, 10, 6, 8, 20, 48);
+            Check(KeystoneNewsFlatten.Countdown(KeystoneNewsFlatten.Next(nyNowT), KeystoneNewsFlatten.Active(nyNowT), true, nyNowT) == "📰 NEWS FLATTEN in 4:12 — " + wins[0].Title && !KeystoneNewsFlatten.Blocks(fund)
+                && KeystoneNewsFlatten.Countdown(KeystoneNewsFlatten.Next(nyNowT.AddMinutes(-20)), null, true, nyNowT.AddMinutes(-20)) == "",
+                "📰 countdown from T − 15 (\"in 4:12 — USD CPI m/m 08:30 …\"), nothing earlier, entries still allowed before T − 5", KeystoneNewsFlatten.Countdown(KeystoneNewsFlatten.Next(nyNowT), null, true, nyNowT));
+            nyNowT = new DateTime(2026, 10, 6, 8, 25, 0);
+            Check(KeystoneNewsFlatten.Blocks(fund) && !KeystoneNewsFlatten.Blocks("TPT-OFF-PRO1") && !KeystoneNewsFlatten.Blocks(eval) && !KeystoneNewsFlatten.Blocks(sim) && KeystoneNewsFlatten.Label(fund).Contains("until 08:35"),
+                "📰 T − 5: the TPT funded account is blocked; its OFF switch is respected; eval / sim never", KeystoneNewsFlatten.Label(fund));
+            // the flatten decision: once per window per account, again only if something is (still / again) open ≥ 5 s later, a new window = a new flatten
+            var tr = new KeystoneNewsFlattenTracker(); var w0 = KeystoneNewsFlatten.Active(nyNowT);
+            Check(tr.Decide(fund, w0.Key, true, nyNowT) == "FLATTEN" && tr.Decide(fund, w0.Key, true, nyNowT.AddSeconds(2)) == "" && tr.Decide(fund, w0.Key, false, nyNowT.AddSeconds(10)) == ""
+                && tr.Decide(fund, w0.Key, true, nyNowT.AddSeconds(70)) == "AGAIN" && tr.Decide(fund, "202610060925", true, nyNowT.AddMinutes(60)) == "FLATTEN" && tr.Count(fund, w0.Key) == 2,
+                "📰 flatten at T − 5 once (idempotent), a position opened inside the window → flattened AGAIN, a rejected close retries after 5 s");
+            // the chart path: an ARMED link inside the window — a BUY never reaches the broker (still armed), a position opened in NinjaTrader can be closed
+            var lt0 = new DateTime(2026, 10, 6, 9, 45, 0);
+            {
+                var b = new FakeBroker(); var l = new KeystoneAccountLink(b, "MNQ") { MaxContracts = 5, AccountName = fund }; var t = Trader(); l.Arm(lt0);
+                t.Buy(2); l.Tick(t, lt0.AddSeconds(1)); l.Tick(t, lt0.AddSeconds(2)); var pl = t.Place("LIMIT", 1, 1, 19990); l.Tick(t, lt0.AddSeconds(3));
+                Check(b.Sent.Count == 0 && l.Armed && t.Position == 0 && !t.Orders.Contains(pl) && l.Warning.Contains("ENTRIES REFUSED") && l.State.StartsWith("📰 NEWS WINDOW"),
+                    "📰 chart: BUY / BUY LIMIT refused inside the window (0 entry orders), the link stays ARMED", string.Join(" | ", b.Sent) + " / " + l.State + " / " + l.Warning);
+                b.External("MARKET", 1, 0); b.Exec(1, 20000, "NT"); l.Tick(t, lt0.AddSeconds(4)); t.Sell(1); l.Tick(t, lt0.AddSeconds(5));
+                Check(b.Sent.SequenceEqual(new[] { "FLATTEN" }) && b.Q == 0, "📰 closing inside the window goes (FLATTEN only)", string.Join(" | ", b.Sent));
+                var bu = new FakeBroker(); var lu = new KeystoneAccountLink(bu, "MNQ") { MaxContracts = 5, AccountName = fund }; var tu = Trader(); bu.External("MARKET", -1, 0); bu.Exec(-1, 20000, "NT"); lu.Tick(tu, lt0); tu.Buy(1); lu.Tick(tu, lt0.AddSeconds(1));
+                Check(bu.Sent.SequenceEqual(new[] { "FLATTEN" }) && bu.Q == 0, "📰 an UNARMED link can still close inside the window", string.Join(" | ", bu.Sent));
+                nyNowT = new DateTime(2026, 10, 6, 8, 35, 0); b.Sent.Clear(); t.Buy(1); l.Tick(t, lt0.AddSeconds(30)); l.Tick(t, lt0.AddSeconds(31));
+                Check(!KeystoneNewsFlatten.Blocks(fund) && b.Sent.Count(x => x.StartsWith("MARKET")) == 1, "📰 T + 2: entries allowed again", string.Join(" | ", b.Sent));
+                nyNowT = new DateTime(2026, 10, 6, 8, 34, 59); Check(KeystoneNewsFlatten.Blocks(fund), "📰 T + 1:59 still blocked");
+            }
+            // the copier / ROTATE and the group desk: the follower's own link refuses — nothing sent to that account
+            {
+                nyNowT = new DateTime(2026, 10, 6, 8, 28, 0);
+                var rb = new FakeBroker(); var rot = new KeystoneRotator(); var f = new KeystoneCopyFollower { Account = fund, MaxQty = 10, Link = new KeystoneAccountLink(rb, "MNQ") { MaxContracts = 10, AccountName = fund }, Mirror = Trader() }; f.Link.Arm(lt0); rot.Pool.Add(f);
+                var leader = Trader(); leader.Slave = false; leader.Place("LIMIT", 1, 2, 19990); for (int i = 0; i < 4; i++) rot.Tick(leader, lt0.AddSeconds(1 + i * 0.25)); leader.Adopt(2, 20000, lt0.AddSeconds(2)); for (int i = 0; i < 4; i++) rot.Tick(leader, lt0.AddSeconds(3 + i));
+                Check(!rb.Sent.Any(x => x.StartsWith("LIMIT") || x.StartsWith("MARKET")) && rb.Q == 0, "📰 ROTATE / copier: the setup is refused on the TPT funded account inside the window (0 entries)", string.Join(" | ", rb.Sent));
+                var dk = new KeystoneGroupDesk { Group = "TPT" }; var gb = new FakeBroker(); var gf = new KeystoneCopyFollower { Account = fund, MaxQty = 5, Link = new KeystoneAccountLink(gb, "MNQ") { MaxContracts = 5, AccountName = fund }, Mirror = Trader() }; gf.Link.Arm(lt0); dk.Members.Add(Tuple.Create("MNQ", gf));
+                var ob = new FakeBroker(); var of2 = new KeystoneCopyFollower { Account = "LUCIDLFP1", MaxQty = 5, Link = new KeystoneAccountLink(ob, "MNQ") { MaxContracts = 5, AccountName = "LUCIDLFP1" }, Mirror = Trader() }; of2.Link.Arm(lt0); dk.Members.Add(Tuple.Create("MNQ", of2));
+                dk.Enter("MNQ", 1, 2, 20000, 10, 20, lt0); dk.Tick("MNQ", 20000, lt0); dk.Tick("MNQ", 20000, lt0.AddSeconds(0.25));
+                Check(gb.Sent.Count == 0 && ob.Sent.SequenceEqual(new[] { "MARKET 2" }), "📰 copy group desk: the TPT funded member sends nothing, an account out of scope trades as usual", string.Join(" | ", gb.Sent) + " / " + string.Join(" | ", ob.Sent));
+            }
+            // the 🤖 autopilot: a 2:00 entry inside a 2:03 news window → no ticket order, journalled BLOCKED with the news window
+            {
+                var d0 = new DateTime(2026, 10, 6); var cal2 = new List<KeystoneNewsEvent> { new KeystoneNewsEvent { Time = d0.AddHours(2).AddMinutes(3), Title = "TEST", Currency = "USD", Impact = "HIGH" } };
+                KeystoneNewsFlatten.Publish(KeystoneNewsFlatten.Windows(cal2, d0, d0.AddDays(1)), true, new[] { "TPTPRO-AP1" });
+                var bA = new FakeBroker(); var ap = new KeystoneAutopilot(); var sA = new KeystoneAutoSeat { Account = "TPTPRO-AP1", Nick = "AP1", Firm = "LUCID", Stage = "EVAL", Owner = "ME", Group = "L", Plan = KeystoneAutoPlan.EvalDefault(), WantAuto = true,
+                    Link = new KeystoneAccountLink(bA, "MNQ") { MaxContracts = 20, AccountName = "TPTPRO-AP1" }, Mirror = Trader(), Start = 50000, Dd = 2000, Target = 3000, Balance = 50500, MinDays = 2 };
+                ap.Seats.Add(sA); sA.Link.Arm(d0); ap.Start("START", d0.AddHours(1).AddMinutes(58));
+                for (int i = 0; i <= 30; i++) { nyNowT = d0.AddHours(2).AddSeconds(i); ap.Tick(nyNowT, 20000); bA.FillMarket(20000); }
+                Check(bA.Sent.Count == 0 && ap.Journal.Any(r => r.Event == "BLOCKED" && r.Detail.Contains("NEWS WINDOW")), "📰 🤖 autopilot: no entry inside the news window (journalled BLOCKED • NEWS WINDOW)", string.Join(" | ", bA.Sent) + " / " + string.Join(",", ap.Journal.Select(r => r.Event + ":" + r.Detail)));
+            }
+            // the calendar missing → no window at all + the red banner
+            {
+                nyNowT = new DateTime(2026, 10, 6, 8, 28, 0); var old = new List<KeystoneNewsEvent> { new KeystoneNewsEvent { Time = new DateTime(2026, 9, 29, 8, 30, 0), Title = "OLD", Currency = "USD", Impact = "HIGH" } };
+                bool ok = KeystoneNewsFlatten.Covers(old, nyNowT); KeystoneNewsFlatten.Publish(wins, ok, new[] { fund });
+                Check(!ok && !KeystoneNewsFlatten.Covers(new List<KeystoneNewsEvent>(), nyNowT) && !KeystoneNewsFlatten.Blocks(fund) && KeystoneNewsFlatten.Countdown(null, null, false, nyNowT) == "📰 NEWS FLATTEN: calendar unavailable — protection NOT active",
+                    "📰 calendar missing / last week only → \"calendar unavailable — protection NOT active\" and no action");
+            }
+            // New York time incl. DST (the fallback rule; ForexFactory's offsets are converted the same way) + the saved switches
+            Func<int, int, int, int, int, DateTime> U = (y, mo, d, h, mi) => new DateTime(y, mo, d, h, mi, 0, DateTimeKind.Utc);
+            Check(KeystoneNewsFlatten.NyFromUtc(U(2026, 7, 15, 12, 30)) == new DateTime(2026, 7, 15, 8, 30, 0) && KeystoneNewsFlatten.NyFromUtc(U(2026, 1, 13, 13, 30)) == new DateTime(2026, 1, 13, 8, 30, 0)
+                && KeystoneNewsFlatten.NyFromUtc(U(2026, 3, 8, 6, 59)) == new DateTime(2026, 3, 8, 1, 59, 0) && KeystoneNewsFlatten.NyFromUtc(U(2026, 3, 8, 7, 0)) == new DateTime(2026, 3, 8, 3, 0, 0)
+                && KeystoneNewsFlatten.NyFromUtc(U(2026, 11, 1, 5, 59)) == new DateTime(2026, 11, 1, 1, 59, 0) && KeystoneNewsFlatten.NyFromUtc(U(2026, 11, 1, 6, 0)) == new DateTime(2026, 11, 1, 1, 0, 0),
+                "📰 New York time: 08:30 = 12:30 UTC in summer / 13:30 in winter, the DST switches (Mar 8 / Nov 1 2026)");
+            var ff = KeystoneNews.ParseForexFactory("[{\"title\":\"CPI m/m\",\"country\":\"USD\",\"date\":\"2026-07-15T08:30:00-04:00\",\"impact\":\"High\"}]", o => KeystoneNewsFlatten.NyFromUtc(o.UtcDateTime));
+            Check(ff.Count == 1 && ff[0].Time == new DateTime(2026, 7, 15, 8, 30, 0) && KeystoneNewsFlatten.IsRed(ff[0]), "📰 a ForexFactory red-folder event (High, offset −04:00) = USD HIGH at 08:30 NY", ff.Count > 0 ? ff[0].Time + " " + ff[0].Impact : "none");
+            KeystoneNewsFlatten.Off.Clear(); KeystoneNewsFlatten.Off.Add(fund); KeystoneNewsFlatten.AfterMin = 3; var saved = KeystoneNewsFlatten.Save(); KeystoneNewsFlatten.Clear(); KeystoneNewsFlatten.Load(saved);
+            Check(KeystoneNewsFlatten.Off.Contains(fund) && KeystoneNewsFlatten.AfterMin == 3, "📰 the per-account OFF switch + the minutes after are remembered", saved);
+            KeystoneNewsFlatten.Clear(); KeystoneNewsFlatten.NyClock = () => KeystoneNewsFlatten.NyFromUtc(DateTime.UtcNow);
+        }
         // ================= 🎯 3 SETUPS ▸ 🔄 ROTATE GUIDED source (BUILD 2026-11-11p): a ticket per setup, ONE press = the bracket through that account's ARMED link =================
         {
             var gd = new DateTime(2026, 10, 6); Func<int, int, double, DateTime> at = (h, m, sec) => gd.AddHours(h).AddMinutes(m).AddSeconds(sec);
