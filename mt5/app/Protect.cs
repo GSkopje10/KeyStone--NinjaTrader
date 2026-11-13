@@ -108,6 +108,12 @@ namespace KeystoneMT5
         }
 
         // ---------------------------------------------------------------- the DEMO account (live prices, simulated)
+        // 💵 09p: the costs saved per account (login@server); the old global keys are no longer written (they leaked between brokers)
+        string demoNote13p = "";
+        void DemoPut(string acc, string kind, string com, string mk, string pct)
+        {
+            if (string.IsNullOrEmpty(acc)) return; Put(DemoCosts.Key("kind", acc), kind); Put(DemoCosts.Key("com", acc), com); Put(DemoCosts.Key("mk", acc), mk); Put(DemoCosts.Key("pct", acc), pct);
+        }
         void DemoSetup(bool first)
         {
             if (!Paper) return;
@@ -120,23 +126,27 @@ namespace KeystoneMT5
             int lev0; lock (live.State.Gate) lev0 = live.State.Account.Leverage > 0 ? live.State.Account.Leverage : 500;
             var bal = field("BALANCE ($)", Get("demo.bal", "5000")); var lev = field("LEVERAGE 1:", Get("demo.lev", lev0.ToString(IC)));
             g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); var kl = new TextBlock { Text = "ACCOUNT TYPE", Foreground = Muted, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center }; Grid.SetRow(kl, row); g.Children.Add(kl);
-            string kind = Get("demo.kind", "RAW"); var kp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) }; Grid.SetRow(kp, row); Grid.SetColumn(kp, 1); g.Children.Add(kp); row++;
-            var raw = Pill("RAW", Card); var std = Pill("STANDARD", Card); kp.Children.Add(raw); kp.Children.Add(std);
-            var com = field("COMMISSION $ / lot (STANDARD)", Get("demo.com", "7")); var mk = field("EXTRA SPREAD points (RAW)", Get("demo.mk", "10"));
+            string srvK, acc; lock (live.State.Gate) srvK = live.State.Account.Server ?? ""; acc = live.Key ?? "";
+            var cur = paper.Ready ? paper.Acct.Set : null;   // 💵 09p: the running demo's OWN costs first, then this account's saved ones, then the broker's default — never another account's
+            Func<string, string> dget = nmk => Get(DemoCosts.Key(nmk, acc), DemoCosts.Default(nmk, srvK));
+            string kind = cur != null ? (cur.Kind == "STANDARD" ? "STANDARD" : "RAW") : dget("kind"); var kp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) }; Grid.SetRow(kp, row); Grid.SetColumn(kp, 1); g.Children.Add(kp); row++;
+            var raw = Pill(DemoCosts.SpreadOnly, Card); var std = Pill(DemoCosts.RawPlusCommission, Card); std.Margin = new Thickness(6, 0, 0, 0);
+            raw.ToolTip = "no commission — MT5's spread (+ the EXTRA SPREAD points below, 0 = MT5's own): IC Markets' Standard account"; std.ToolTip = "MT5's raw spread (near 0) + a commission $ per lot (round turn, half in / half out): a Raw / ECN account"; kp.Children.Add(raw); kp.Children.Add(std);
+            var com = field("COMMISSION $ / lot (RAW SPREAD + COMMISSION)", cur != null ? cur.CommissionPerLot.ToString(IC) : dget("com")); var mk = field("EXTRA SPREAD points (SPREAD ONLY)", cur != null ? cur.MarkupPts.ToString(IC) : dget("mk"));
             string srv0; lock (live.State.Gate) srv0 = live.State.Account.Server ?? "";
             string hedgedSays = "?"; lock (live.State.Gate) { Mt5Symbol xs; if (live.State.Symbols.TryGetValue("XAUUSD", out xs) && xs.MarginHedged >= 0) { double r = xs.MarginInitial > 0 && xs.MarginPerLot > 0 ? xs.MarginHedged / xs.MarginPerLot : xs.Contract > 0 ? xs.MarginHedged / xs.Contract : -1; hedgedSays = r < 0 ? "?" : (Math.Min(1, r) * 100).ToString("0", IC) + " %"; } }
             var hpct = field("HEDGED PAIR MARGIN % (−1 = MT5's: " + hedgedSays + ")", Get("demo.hpct", "50"));   // a buy + a sell of the same size: what margin they need together
-            var pct = field("COMMISSION % of each deal (in AND out)", Get("demo.pct", srv0.IndexOf("dura", StringComparison.OrdinalIgnoreCase) >= 0 ? "0.001" : "0"));   // Duramarkets: 0.001 % by deal volume, in / out
+            var pct = field("COMMISSION % of each deal (in AND out)", cur != null ? cur.CommissionPct.ToString(IC) : dget("pct"));   // Duramarkets: 0.001 % by deal volume, in / out — 09p: per account
             Action paint = () => { raw.Background = kind == "RAW" ? Tint(Cyan, 200) : (Brush)Card; raw.Foreground = kind == "RAW" ? Bg : Text; std.Background = kind == "STANDARD" ? Tint(Violet, 200) : (Brush)Card; std.Foreground = kind == "STANDARD" ? Bg : Text; com.IsReadOnly = kind == "RAW"; com.Opacity = kind == "RAW" ? 0.35 : 1; mk.IsReadOnly = kind != "RAW"; mk.Opacity = kind == "RAW" ? 1 : 0.35; };
             raw.Click += delegate { kind = "RAW"; paint(); }; std.Click += delegate { kind = "STANDARD"; paint(); }; paint();
             {   // 📋 AS MY BROKER (user's request: IC Markets — no commission, a tight spread, swap): MT5's own spread, swap and hedged margin, nothing added
                 bool icm = srv0.IndexOf("icmarkets", StringComparison.OrdinalIgnoreCase) >= 0;
-                var asMine = Pill(icm ? "📋 AS IC MARKETS (no commission)" : "📋 AS MY MT5 (its spread, swap, margin)", Tint(Green, 90)); asMine.Margin = new Thickness(8, 0, 0, 0);
-                asMine.ToolTip = "STANDARD with commission 0, no extra spread: MT5's REAL spread on every price, MT5's swap at the server's midnight (triple day included), MT5's own margin for hedged pairs";
-                asMine.Click += delegate { kind = "STANDARD"; com.Text = "0"; mk.Text = "0"; pct.Text = "0"; hpct.Text = "-1"; paint(); };
+                var asMine = Pill(icm ? "📋 AS IC MARKETS (spread only, no commission)" : "📋 AS MY MT5 (its spread, swap, margin)", Tint(Green, 90)); asMine.Margin = new Thickness(8, 0, 0, 0);
+                asMine.ToolTip = "SPREAD ONLY with no extra spread and no commission: MT5's REAL spread on every price, MT5's swap at the server's midnight (triple day included), MT5's own margin for hedged pairs";
+                asMine.Click += delegate { kind = "RAW"; com.Text = "0"; mk.Text = "0"; pct.Text = "0"; hpct.Text = "-1"; paint(); };
                 g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); asMine.Margin = new Thickness(0, 6, 0, 8); asMine.Height = 34; asMine.FontSize = 13; asMine.HorizontalAlignment = HorizontalAlignment.Stretch;
                 Grid.SetRow(asMine, row); Grid.SetColumnSpan(asMine, 2); g.Children.Add(asMine); row++;   // its own full-width row (it was pushed off the narrow type row)
-                if (icm && Get("demo.kind", "") == "") { kind = "STANDARD"; com.Text = "0"; mk.Text = "0"; pct.Text = "0"; hpct.Text = "-1"; paint(); }   // a new IC Markets demo starts like the real account
+                if (icm && cur == null && Get(DemoCosts.Key("kind", acc), "") == "") { kind = "RAW"; com.Text = "0"; mk.Text = "0"; pct.Text = "0"; hpct.Text = "-1"; paint(); }   // a new IC Markets demo starts like the real account (spread only)
             }
             if (!first && paper.Ready)
             {   // ✔ APPLY (user's request: "edit the demo account without resetting everything"): the type, spread, commission, leverage and
@@ -148,19 +158,20 @@ namespace KeystoneMT5
                     Func<TextBox, double> hn = b => { double v; return double.TryParse(b.Text.Replace(',', '.'), NumberStyles.Float, IC, out v) ? (v < 0 ? -1 : Math.Min(100, v)) : -1; };
                     Func<TextBox, double, double> nm = (b, d) => { double v; return double.TryParse(b.Text.Replace(',', '.'), NumberStyles.Float, IC, out v) && v >= 0 ? v : d; };
                     lock (broker.State.Gate) { var cs = paper.Acct.Set; cs.Kind = kind; cs.CommissionPerLot = nm(com, 7); cs.MarkupPts = nm(mk, 10); cs.CommissionPct = nm(pct, 0); cs.HedgedPct = hn(hpct); cs.Leverage = (int)Math.Max(1, nm(lev, 500)); }
-                    Put("demo.pct", pct.Text); Put("demo.hpct", hpct.Text); Put("demo.lev", lev.Text); Put("demo.kind", kind); Put("demo.com", com.Text); Put("demo.mk", mk.Text);
-                    Toast("✔ DEMO account updated — " + kind + (kind == "RAW" ? " +" + mk.Text + " pts" : " • commission $" + com.Text + "/lot") + " • the balance and positions stay"); posSig = ""; trackSig = "";
+                    Put("demo.hpct", hpct.Text); Put("demo.lev", lev.Text); DemoPut(acc, kind, com.Text, mk.Text, pct.Text); demoNote13p = "";
+                    string dsc; lock (broker.State.Gate) dsc = DemoCosts.Describe(paper.Acct.Set);
+                    Toast("✔ DEMO account updated — " + dsc + " • the balance and positions stay"); posSig = ""; trackSig = "";
                     var wnd = Window.GetWindow(apply); if (wnd != null) wnd.Close();
                 };
             }
-            string txt = "Your MT5's REAL prices and candles, with a simulated account: every button works like live — nothing reaches MT5.\nRAW = no commission, the spread wider by the extra points • STANDARD = MT5's spread (near 0) + commission per lot (round turn).\nCOMMISSION % = a broker that charges a share of each deal's value (Duramarkets: 0.001 % on every in and out deal — gold 0.1 lot ≈ $0.40 a side); it applies to RAW and STANDARD.\nHEDGED PAIR MARGIN = the margin a buy and a sell of the same size need together: −1 = what this broker's MT5 says for the symbol (" + hedgedSays + " for XAUUSD), 50 = half, 100 = both legs in full (the strictest: margin calls come sooner)."
+            string txt = "Your MT5's REAL prices and candles, with a simulated account: every button works like live — nothing reaches MT5.\nSPREAD ONLY = no commission, MT5's spread (+ the extra points, 0 = none) — IC Markets' Standard • RAW SPREAD + COMMISSION = MT5's spread (near 0) + commission per lot (round turn).\nCOMMISSION % = a broker that charges a share of each deal's value (Duramarkets: 0.001 % on every in and out deal — gold 0.1 lot ≈ $0.40 a side); it applies to both. Every cost here belongs to THIS account (" + (acc != "" ? acc : "the connected MT5") + ") only.\nHEDGED PAIR MARGIN = the margin a buy and a sell of the same size need together: −1 = what this broker's MT5 says for the symbol (" + hedgedSays + " for XAUUSD), 50 = half, 100 = both legs in full (the strictest: margin calls come sooner)."
                 + (!first && paper.Ready ? "\n\n⚠ A NEW account replaces the current one (its tickets and history are cleared)." : "");
             if (!Sx.Form(this, "🎮 DEMO ACCOUNT", txt, g, first || !paper.Ready ? "START THE DEMO" : "START A NEW DEMO", "CANCEL", Orange)) { if (!paper.Ready) Toast("🎮 set up the DEMO account in the panel to trade"); return; }
             Func<TextBox, double> hneg = b => { double v; return double.TryParse(b.Text.Replace(',', '.'), NumberStyles.Float, IC, out v) ? (v < 0 ? -1 : Math.Min(100, v)) : -1; };
             Func<TextBox, double, double> num = (b, d) => { double v; return double.TryParse(b.Text.Replace(',', '.'), NumberStyles.Float, IC, out v) && v >= 0 ? v : d; };
             var s = new SimAccountSettings { Balance = Math.Max(100, num(bal, 10000)), Leverage = (int)Math.Max(1, num(lev, 500)), Kind = kind, CommissionPerLot = num(com, 7), MarkupPts = num(mk, 10), Currency = "USD", CommissionPct = num(pct, 0), HedgedPct = hneg(hpct) };
-            Put("demo.pct", pct.Text); Put("demo.hpct", hpct.Text); Put("demo.bal", bal.Text); Put("demo.lev", lev.Text); Put("demo.kind", kind); Put("demo.com", com.Text); Put("demo.mk", mk.Text);
-            paper.Start(s); resSeen = 0; posSig = ""; trackSig = ""; Toast("🎮 DEMO started — " + Money(s.Balance, "USD") + " • " + kind + " • 1:" + s.Leverage);
+            Put("demo.hpct", hpct.Text); Put("demo.bal", bal.Text); Put("demo.lev", lev.Text); DemoPut(acc, kind, com.Text, mk.Text, pct.Text); demoNote13p = "";
+            paper.Start(s); resSeen = 0; posSig = ""; trackSig = ""; Toast("🎮 DEMO started — " + Money(s.Balance, "USD") + " • " + DemoCosts.Describe(s) + " • 1:" + s.Leverage);
         }
     }
 }

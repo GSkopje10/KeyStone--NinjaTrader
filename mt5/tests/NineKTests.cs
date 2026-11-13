@@ -36,8 +36,8 @@ public static class NineKTests
         Check(r8.CompressMode == "ALWAYS" && r8.RiskGuard && r8.GuardMode == "LOCK" && Eq(r8.GuardLots, 0.6) && Eq(r8.GuardMargin, 500) && r8.GuardChop == 3 && r8.PairOff && r8.HedgeSize == "ADVANTAGE"
             && r4.CompressMode == "ALWAYS" && r4.RiskGuard && r4.GuardMode == "LOCK",
             "🦅 RUNNER: 🧹 COMPRESS ALWAYS + the chop LOCK (RISK GUARD in LOCK mode: 0.6 lot, margin 500 %, 3 hedges, pair-off)", r8.CompressMode + " " + r8.RiskGuard + " " + r8.GuardMode);
-        Check(r8.ExitGuard == d8.ExitGuard && r8.Rescue == d8.Rescue && r8.DangerExit == d8.DangerExit && r8.BeLock == d8.BeLock && r8.EntryMode == d8.EntryMode && r8.HedgeMode == d8.HedgeMode && r8.HedgeCap == d8.HedgeCap && r8.HardFloat == d8.HardFloat && !d8.RiskGuard && d8.CompressMode == "OFF" && Eq(d8.EntryLots, 0.08),
-            "🦅 RUNNER: everything else as DEFENDER (exit guard, rescue, danger exit, breakeven lock, break entries / hedges, hard stops); DEFENDER itself unchanged (0.08, no guard, no compress)");
+        Check(r8.ExitGuard == d8.ExitGuard && r8.Rescue == d8.Rescue && r8.DangerExit == d8.DangerExit && r8.BeLock == d8.BeLock && r8.EntryMode == d8.EntryMode && r8.HedgeMode == d8.HedgeMode && r8.HedgeCap == d8.HedgeCap && r8.HardFloat == d8.HardFloat && d8.RiskGuard && d8.CompressMode == "OFF" && Eq(d8.EntryLots, 0.08),
+            "🦅 RUNNER: everything else as DEFENDER (exit guard, rescue, danger exit, breakeven lock, break entries / hedges, hard stops); DEFENDER itself 0.08, no compress (⭐ 13p: with the RISK GUARD)");
         {   // the smallest lot is 0.01: never below it, and the warning says how much bigger the risk is
             string w4 = AutoSettings.RunnerSizeWarning(431), w8 = AutoSettings.RunnerSizeWarning(8000), w833 = AutoSettings.RunnerSizeWarning(834), w800 = AutoSettings.RunnerSizeWarning(800);
             Check(w8 == "" && w833 == "" && w4.Contains("$431") && w4.Contains("0.01 lot") && w4.Contains("3.9× the planned risk") && w4.Contains("0.0026") && w800.Contains("2.1×") && r4.EntryLots >= 0.01,

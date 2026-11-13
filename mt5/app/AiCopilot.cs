@@ -50,7 +50,7 @@ namespace KeystoneMT5
             "Facts from the app's own 6-year research on 1-minute gold (state them when they matter, never contradict them):\n" +
             "- No tested rule showed a reliable direction edge; trend detectors, setups and recovery stacking all LOST over six years. Treat any directional idea as uncertain.\n" +
             "- Adding size to recover a loss is a martingale: it can finish the basket sooner, but a wrong move gets much more expensive. Always state the $ risk if wrong.\n" +
-            "- Swap is charged on every open lot each night (about −62 per lot for longs, +28 for shorts on gold at this broker; Wednesday triple). Closing matched pairs saves it.\n" +
+            "- Swap is charged on every open lot each night (Wednesday triple); use the symbol's swap_long_per_lot / swap_short_per_lot from the context (the broker's own figures; 0 / missing = unknown, do not guess). Closing matched pairs saves it.\n" +
             "- Closing everything at breakeven after a deep basket is often the least-bad outcome; holding a deep basket can take days.\n" +
             "- The danger radar ranks baskets reasonably (AUC about 0.69) but its percentages are calibrated band rates, not forecasts.\n\n" +
             "Give ONE recommendation in the required JSON schema. Choose the smallest action that controls the risk. Use only tickets that exist in the basket. Sizes are in lots, " +

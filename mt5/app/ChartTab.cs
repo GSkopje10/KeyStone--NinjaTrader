@@ -1201,7 +1201,7 @@ namespace KeystoneMT5
             if (Virtual)
             {
                 var vs = Sim ? (sim.Set != null ? sim.Set.Account() : null) : paper.Ready ? paper.Acct.Set : null;
-                armText.Text = (Sim ? "🧪 BACKTEST ACCOUNT" : paper.Ready ? "🎮 DEMO ACCOUNT on live prices" : "🎮 DEMO — press the button below to set up your account") + (vs != null ? " • " + vs.Kind + (vs.Kind != "RAW" ? " $" + vs.CommissionPerLot.ToString("0.##", IC) + " / lot" : " +" + vs.MarkupPts.ToString("0", IC) + " pts spread") + " • 1:" + vs.Leverage : "") + " • hedging — nothing reaches MT5"; armText.Foreground = Cyan;
+                armText.Text = (Sim ? "🧪 BACKTEST ACCOUNT" : paper.Ready ? "🎮 DEMO ACCOUNT on live prices" : "🎮 DEMO — press the button below to set up your account") + (vs != null ? " • " + DemoCosts.Describe(vs) + " • 1:" + vs.Leverage : "") + " • hedging — nothing reaches MT5"; armText.Foreground = Cyan;
                 if (armChecks.Children.Count > 0) armChecks.Children.Clear();
                 foreach (var b in new[] { buyBtn, sellBtn }) b.Opacity = 1; return;
             }

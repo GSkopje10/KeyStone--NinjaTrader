@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-11-13o";   // 09o: 🪜 2ND-SWING HEDGE (a hedge trigger: in drawdown the hedge at the break of the 2nd swing low / high after the entry, the flip back at the last swing; LEAD stays the default) • 09n: 🚑 STEP IN (the iteration handed to a trend-stacking manager when a basket is deep; simulated = may blow, MT5 = opt-in, typed STEP IN)
+        public const string Build = "SpasiX • BUILD 2026-11-13p";   // 09p: ⏰ NO NEW TRADES BEFORE THE 17:00 NY CLOSE (DEFENDER: 45 min) • 🌙 close at the close only if ≥ breakeven (optional) • ⭐ 13p RECOMMENDED (RISK GUARD + ⏰) • 💵 DEMO costs per account • 09o: 🪜 2ND-SWING HEDGE (a hedge trigger: in drawdown the hedge at the break of the 2nd swing low / high after the entry, the flip back at the last swing; LEAD stays the default) • 09n: 🚑 STEP IN (the iteration handed to a trend-stacking manager when a basket is deep; simulated = may blow, MT5 = opt-in, typed STEP IN)
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -381,7 +381,7 @@ namespace KeystoneMT5
                     setupStatus.Foreground = alive ? Green : live.Problem != "" ? Red : Cyan;
                     if (!alive && !s.Linked) return;   // ARM stays on through a disconnect (user's request): nothing can be sent until MT5 is back
                     if (!everLinked && alive) { everLinked = true; if (view == "SETUP") Show("CHART"); }
-                    if (Paper) { var la = live.State.Account; var vs = paper.Acct.Set; acLogin.Text = "DEMO"; acName.Text = ""; acRest.Text = "•  simulated " + vs.Kind + (vs.Kind != "RAW" ? " ($" + vs.CommissionPerLot.ToString("0.##", IC) + " / lot)" : " (+" + vs.MarkupPts.ToString("0", IC) + " pts spread)") + "  •  1:" + vs.Leverage + "  •  HEDGING  •  prices from " + la.Server + "  •  nothing reaches MT5"; acRest.Foreground = Orange; }
+                    if (Paper) { var la = live.State.Account; var vs = paper.Acct.Set; acLogin.Text = "DEMO"; acName.Text = ""; acRest.Text = "•  simulated " + DemoCosts.Describe(vs) + "  •  1:" + vs.Leverage + "  •  HEDGING  •  prices from " + la.Server + "  •  nothing reaches MT5" + (demoNote13p != "" ? "  •  💵 " + demoNote13p : ""); acRest.Foreground = Orange; }
                     else { acLogin.Text = a.Login.ToString(IC); acName.Text = a.Name;
                     acRest.Text = "•  " + a.Server + "  •  " + a.Kind + "  •  " + (a.Mode == "HEDGE" ? "HEDGING" : "NETTING") + "  •  1:" + a.Leverage + (s.Company != "" ? "  •  " + s.Company : "");
                     acRest.Foreground = Muted; }

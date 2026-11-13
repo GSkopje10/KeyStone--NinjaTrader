@@ -2,6 +2,7 @@
 import socket, time, math, random, sys, threading, os
 random.seed(7)
 NOW = int(time.time()) + 3*3600   # "server time" = UTC+3
+if os.environ.get("FAKE_NOW"): NOW = int(os.environ["FAKE_NOW"])   # 09p screens: a chosen server time (e.g. NY 16:28 = the ⏰ close window)
 SY = {"XAUUSD": (2, 3997.0, 0.01, 100, 1.0, 0.01, "Gold vs US Dollar"), "USTEC": (2, 20150.0, 0.01, 1, 0.01, 0.01, "US Tech 100 Index"), "BTCUSD": (2, 67250.0, 0.01, 1, 0.01, 0.01, "Bitcoin vs US Dollar"), "EURUSD": (5, 1.0832, 0.00001, 100000, 1.0, 0.00001, "Euro vs US Dollar")}
 px = {k: v[1] for k, v in SY.items()}
 TREND = os.environ.get("FAKE_TREND") == "1"   # 09j screens: a strong gold uptrend with small swings + a LOSING net-long basket (the 💡 ADD / RECOVERY buttons appear)

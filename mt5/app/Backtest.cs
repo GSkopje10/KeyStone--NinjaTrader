@@ -86,12 +86,12 @@ namespace KeystoneMT5
             // 3 — the account: RAW / STANDARD + the balance (the rest folded under MORE)
             var c3 = card("3 • THE ACCOUNT  (simulated, hedging)", Gold);
             btKind = Get("bt.kind", "RAW") == "STANDARD" ? "STANDARD" : "RAW";
-            var kr = new WrapPanel(); btRawBtn = chip("RAW — no commission, wider spread"); btStdBtn = chip("STANDARD — commission, spread near 0"); btRawBtn.Height = btStdBtn.Height = 32;
+            var kr = new WrapPanel(); btRawBtn = chip("SPREAD ONLY — no commission (+ extra spread)"); btStdBtn = chip("RAW SPREAD + COMMISSION per lot"); btRawBtn.Height = btStdBtn.Height = 32;
             btRawBtn.Click += delegate { btKind = "RAW"; Put("bt.kind", "RAW"); PaintKind(); }; btStdBtn.Click += delegate { btKind = "STANDARD"; Put("bt.kind", "STANDARD"); PaintKind(); };
             kr.Children.Add(btRawBtn); kr.Children.Add(btStdBtn); c3.Children.Add(field("ACCOUNT TYPE", "like IC Markets' Raw Spread and Standard accounts", kr));
             btComm = Sx.Input(Get("bt.comm", "7"), 80); btMarkup = Sx.Input(Get("bt.markup", "10"), 80); btBal = Sx.Input(Get("bt.bal", "10000"), 120);
             Func<TextBox, string, FrameworkElement> withUnit = (b, u) => { var r = new StackPanel { Orientation = Orientation.Horizontal }; r.Children.Add(b); r.Children.Add(new TextBlock { Text = "  " + u, Foreground = Muted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap }); return r; };
-            var commRow = field("COMMISSION", "STANDARD: per lot, round turn", withUnit(btComm, "$ per lot round turn (half in, half out) — STANDARD only")); var markRow = field("EXTRA SPREAD", "RAW: added to MT5's spread", withUnit(btMarkup, "points added to the spread — RAW only (RAW has no commission)"));
+            var commRow = field("COMMISSION", "RAW SPREAD + COMMISSION: per lot, round turn", withUnit(btComm, "$ per lot round turn (half in, half out) — RAW SPREAD + COMMISSION only")); var markRow = field("EXTRA SPREAD", "SPREAD ONLY: added to MT5's spread", withUnit(btMarkup, "points added to the spread — SPREAD ONLY (it has no commission)"));
             c3.Children.Add(commRow); c3.Children.Add(markRow);
             btKindHint = new TextBlock { Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(150, -4, 0, 8) }; c3.Children.Add(btKindHint);
             c3.Children.Add(field("START BALANCE", "", withUnit(btBal, "USD")));
@@ -244,7 +244,7 @@ namespace KeystoneMT5
         {
             bool raw = btKind == "RAW"; btRawBtn.Background = raw ? Tint(Cyan, 200) : (Brush)Card; btRawBtn.Foreground = raw ? Bg : Text; btStdBtn.Background = !raw ? Tint(Violet, 200) : (Brush)Card; btStdBtn.Foreground = !raw ? Bg : Text;
             btComm.IsReadOnly = raw; btComm.Opacity = raw ? 0.35 : 1; btMarkup.IsReadOnly = !raw; btMarkup.Opacity = raw ? 1 : 0.35;
-            btKindHint.Text = raw ? "RAW: no commission — every ask is wider by the extra points (that is your cost)." : "STANDARD: MT5's spread (near 0) + the commission per lot.";
+            btKindHint.Text = raw ? "SPREAD ONLY: no commission — MT5's spread, every ask wider by the extra points (0 = none: IC Markets' Standard)." : "RAW SPREAD + COMMISSION: MT5's spread (near 0) + the commission per lot.";
         }
         bool Range(out DateTime f, out DateTime t)
         {

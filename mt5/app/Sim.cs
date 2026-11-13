@@ -290,7 +290,7 @@ namespace KeystoneMT5
                 foreach (var f in feeds)
                 {
                     var sp = f.Spec; acct.Specs[sp.Name] = sp;
-                    state.Symbols[sp.Name] = new Mt5Symbol { Name = sp.Name, Description = sp.Description, Digits = sp.Digits, Point = sp.Point, Contract = sp.Contract, TickValue = sp.TickValue, TickSize = sp.TickSize, VolMin = sp.VolMin, VolStep = sp.VolStep, VolMax = sp.VolMax, SwapLong = sp.SwapLong, SwapShort = sp.SwapShort, SwapMode = sp.SwapMode, Swap3Day = (int)sp.Swap3Day };
+                    state.Symbols[sp.Name] = new Mt5Symbol { Name = sp.Name, Description = sp.Description, Digits = sp.Digits, Point = sp.Point, Contract = sp.Contract, TickValue = sp.TickValue, TickSize = sp.TickSize, VolMin = sp.VolMin, VolStep = sp.VolStep, VolMax = sp.VolMax, SwapLong = sp.SwapLong, SwapShort = sp.SwapShort, SwapMode = sp.SwapMode, Swap3Day = (int)sp.Swap3Day, HasX = true };   // 💤 09p: a simulated account's swap is its own spec (known)
                     var warm = f.Bars.Take(f.Start).ToList();
                     foreach (var m in Tf.All) { var se = state.SeriesOf(sp.Name, m); se.Bars.Clear(); se.Bars.AddRange(BarSeries.Fold(warm, m)); se.Loaded = true; se.LoadedAt = DateTime.Now; se.Version++; }
                     var first = f.Bars[f.Start]; double px = f.Start > 0 ? f.Bars[f.Start - 1].C : first.O; Quote(f, first.Time, px, first.Spread);

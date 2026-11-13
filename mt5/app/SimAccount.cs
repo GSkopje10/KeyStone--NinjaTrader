@@ -20,6 +20,47 @@ namespace KeystoneMT5
         public bool Widened { get { return Kind == "RAW"; } }
     }
 
+    // 💵 09p: the DEMO's costs PER ACCOUNT (login@server, like 09d's Continuity) — the global demo.pct / demo.kind / demo.mk let a Duramarkets
+    // COMMISSION % 0.001 leak into an IC Markets demo (−$87.50). The stored kinds stay "RAW" / "STANDARD"; the words read like the brokers'.
+    public static class DemoCosts
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public const string SpreadOnly = "SPREAD ONLY (no commission)", RawPlusCommission = "RAW SPREAD + COMMISSION per lot";
+        public static string KindLabel(string kind) { return kind == "STANDARD" ? RawPlusCommission : SpreadOnly; }
+        public static bool IsDura(string server) { return (server ?? "").IndexOf("dura", StringComparison.OrdinalIgnoreCase) >= 0; }
+        public static bool IsIcm(string server) { return (server ?? "").IndexOf("icmarkets", StringComparison.OrdinalIgnoreCase) >= 0; }
+        public static string Key(string name, string acc) { return "demo." + name + "." + (acc ?? ""); }
+        // a new demo's costs when this account has none of its own: IC Markets = spread only, no commission, no extra spread (like the real account);
+        // Duramarkets = its 0.001 % per deal; any other broker = spread only + 10 points, no commission %
+        public static string Default(string name, string server)
+        {
+            bool icm = IsIcm(server), dura = IsDura(server);
+            switch (name)
+            {
+                case "kind": return "RAW";
+                case "com": return icm ? "0" : "7";
+                case "mk": return icm ? "0" : "10";
+                case "pct": return dura ? "0.001" : "0";
+            }
+            return "";
+        }
+        // the header's words: "SPREAD ONLY (no commission)", "SPREAD ONLY +2 pts spread", "RAW SPREAD + $7 / lot", "… + 0.001 % a deal"
+        public static string Describe(SimAccountSettings s)
+        {
+            if (s == null) return ""; string t = s.Kind == "STANDARD" ? "RAW SPREAD + $" + s.CommissionPerLot.ToString("0.##", IC) + " / lot" : s.MarkupPts > 0 ? "SPREAD ONLY +" + s.MarkupPts.ToString("0.##", IC) + " pts spread" : SpreadOnly;
+            if (s.CommissionPct > 0) t += " + commission " + s.CommissionPct.ToString("0.#####", IC) + " % a deal";
+            return t;
+        }
+        // the one-time migration: a NON-Duramarkets demo with no COMMISSION % of its own that charges one (inherited from the old global value) → 0.
+        // Returns the note for the DEMO header ("" = nothing changed)
+        public static string Migrate(SimAccountSettings s, string server, bool hasOwnPct)
+        {
+            if (s == null || IsDura(server) || hasOwnPct || s.CommissionPct <= 0) return "";
+            var was = s.CommissionPct; s.CommissionPct = 0;
+            return "commission was " + was.ToString("0.#####", IC) + " % inherited from another account — now 0" + (s.Kind != "STANDARD" && s.MarkupPts > 0 ? " (extra spread +" + s.MarkupPts.ToString("0.##", IC) + " pts kept)" : "") + "; ⚙ DEMO ACCOUNT to change";
+        }
+    }
+
     public sealed class SimAccount
     {
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
