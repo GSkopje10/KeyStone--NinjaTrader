@@ -63,6 +63,7 @@ namespace KeystoneMT5
                 Put("auto.run." + AKey, "0"); var msg = AccountBadge().Item1 + " — ⏸ AUTOMATION STOPPED: you traded by hand (" + what + "). Your positions are untouched. To continue: 🛡 HEDGE ▸ ▶ RESUME AUTOMATION";
                 foreach (var m in Shell.Modes.ToList()) try { m.Toast(msg); } catch { }
                 Log("⏸ " + msg, Red); AutoPaint(true);
+                if (auto.TakeHandPopup()) try { ShowHandPopup(auto.Set != null ? auto.Set.Symbol : "", what); } catch { }   // ⏸ 09q: the small popup, once per stop
             }));
             auto.OnOpenState = line => { try { if (string.IsNullOrEmpty(aHist)) return; var f = AutoFile("open"); if (line == "") { if (File.Exists(f)) File.Delete(f); } else { Directory.CreateDirectory(Path.GetDirectoryName(f)); File.WriteAllText(f, line); } } catch { } };
             auto.RestoreOpen = () => { try { if (string.IsNullOrEmpty(aHist)) AutoLoadHistory(); var f = string.IsNullOrEmpty(aHist) ? null : AutoFile("open"); return f != null && File.Exists(f) ? HedgeAuto.ParseOpen(File.ReadAllText(f)) : null; } catch { return null; } };
@@ -718,6 +719,7 @@ namespace KeystoneMT5
             List<Mt5Position> ps; lock (broker.State.Gate) ps = broker.State.Positions.Where(p => string.Equals(p.Symbol, "XAUUSD", StringComparison.OrdinalIgnoreCase)).ToList(); if (ps.Count == 0) return;
             aTestIter = true; var f = ps.OrderBy(p => p.Time).First(); var it = new AutoIteration { N = auto.Iterations.Count + 1, Start = f.Time, FirstDir = f.Side, Buys = ps.Count(p => p.Dir > 0), Sells = ps.Count(p => p.Dir < 0), Manual = true };
             auto.Iterations.Add(it); auto.Current = it; auto.Version++;
+            if (Environment.GetEnvironmentVariable("SPASIX_TEST_HANDPOP") == "1") Dispatcher.BeginInvoke(new Action(() => ShowHandPopup("XAUUSD", "CLOSED BUY 0.10 #3524004630")));   // screens.sh only (09q): the popup, display only
             if (Environment.GetEnvironmentVariable("SPASIX_TEST_LOCK") == "1")
             {   // screens.sh only (09q): the #30 picture — a 🔐 lock whose LOW the bid already passed by 5.42 (display; the automation is not running, nothing is sent)
                 double bid; lock (broker.State.Gate) { Mt5Quote q; bid = broker.State.Quotes.TryGetValue("XAUUSD", out q) ? q.Bid : double.NaN; } if (double.IsNaN(bid)) return;
@@ -1259,6 +1261,40 @@ namespace KeystoneMT5
             AutoLoadHistory(); if (aView == "⚙ SETTINGS") aView = "STORY"; auto.Start(broker, s, adopt); if (Get("race.auto", "0") == "1" && !raceOn && raceChecks.Count > 0) try { RaceCompare(true); } catch { }   /* 🏁 09j: the comparison starts with the automation (option) */ auto.NoCatchUp = startNoCatch; startNoCatch = false; AutoResumeNote(); Put("auto.run." + AKey, "1"); if (Paper && live != null) Put("auto.run.demolink", live.Key); aWasOn = true; AutoPaint(true);
         }
         // ▶ RESUME AUTOMATION after a stop by hand: asks (the account, the positions it takes over, the settings), then the same basket goes on
+        // ⏸ 09q (user's request): a small, non-blocking "AUTOMATION PAUSED" card owned by this window, at its top-right, in the app's theme. It never
+        // takes the focus or the chart's mouse; 🛡 OPEN HEDGE TAB only shows the tab and makes ▶ RESUME AUTOMATION pulse — it NEVER resumes or sends
+        // (▶ RESUME keeps its own question / typed START on a REAL account)
+        Window aHandPop;
+        void ShowHandPopup(string sym, string what)
+        {
+            try { if (aHandPop != null) aHandPop.Close(); } catch { }
+            var title = new TextBlock { Text = "⏸  AUTOMATION PAUSED", Foreground = Amber, FontSize = 15, FontWeight = FontWeights.Bold };
+            var body = new TextBlock { Text = HedgeAuto.HandPopupText(sym, what), Foreground = Text, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 10), LineHeight = 18 };
+            var open = Pill("🛡  OPEN HEDGE TAB", Tint(Green, 150)); open.Height = 32; open.FontSize = 12.5; open.ToolTip = "shows the 🛡 HEDGE tab and points at ▶ RESUME AUTOMATION — it does not resume anything";
+            var ok = Pill("OK", Card); ok.Height = 32; ok.MinWidth = 70; ok.Margin = new Thickness(8, 0, 0, 0);
+            var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right }; row.Children.Add(open); row.Children.Add(ok);
+            var sp = new StackPanel(); sp.Children.Add(title); sp.Children.Add(body); sp.Children.Add(row);
+            var card = new Border { Child = sp, Background = Sx.CardGrad, BorderBrush = Amber, BorderThickness = new Thickness(1.6), CornerRadius = new CornerRadius(12), Padding = new Thickness(16, 12, 14, 12), Margin = new Thickness(12),
+                Effect = new System.Windows.Media.Effects.DropShadowEffect { Color = Colors.Black, BlurRadius = 18, ShadowDepth = 0, Opacity = 0.6 } };
+            var w = new Window { Owner = this, Content = card, Width = 430, SizeToContent = SizeToContent.Height, WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent, ResizeMode = ResizeMode.NoResize,
+                ShowInTaskbar = false, ShowActivated = false, Focusable = false, Topmost = false, WindowStartupLocation = WindowStartupLocation.Manual, Title = "AUTOMATION PAUSED" };
+            try
+            {   // the top-right corner of THIS window (device pixels → WPF units)
+                var src = PresentationSource.FromVisual(this); var tl = PointToScreen(new Point(ActualWidth, 0)); if (src != null && src.CompositionTarget != null) tl = src.CompositionTarget.TransformFromDevice.Transform(tl);
+                w.Left = tl.X - w.Width - 8; w.Top = tl.Y + 64;
+            }
+            catch { w.Left = Left + Math.Max(0, ActualWidth - w.Width - 8); w.Top = Top + 64; }
+            ok.Click += delegate { try { w.Close(); } catch { } };
+            open.Click += delegate { try { w.Close(); } catch { } HandPopupOpenTab(); };
+            w.Closed += delegate { if (aHandPop == w) aHandPop = null; };
+            aHandPop = w; w.Show();
+        }
+        // 🛡 OPEN HEDGE TAB: the tab + ▶ RESUME AUTOMATION pulses a few times — nothing is resumed, nothing is sent
+        void HandPopupOpenTab()
+        {
+            Show("AUTO"); AutoPaint(true);
+            if (aResumeBtn != null) { aResumeBtn.BringIntoView(); aResumeBtn.BeginAnimation(OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(1, 0.35, TimeSpan.FromMilliseconds(420)) { AutoReverse = true, RepeatBehavior = new System.Windows.Media.Animation.RepeatBehavior(5) }); }
+        }
         void AutoHandResume()
         {
             if (auto.Running) return; AutoSaveSet(); var s = aset.Copy(); if (!AutoStepInGate(s)) return; auto.StopOutPct = Paper ? paper.Acct.Set.StopOutPct : 50; var err = auto.Check(broker, s); if (err != "") { Sx.Info(this, "▶ RESUME", err, Red); return; }

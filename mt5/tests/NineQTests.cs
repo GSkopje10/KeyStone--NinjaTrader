@@ -138,6 +138,23 @@ public static class NineQTests
             var r = Run(s, flat, Path(Line(4000.8, -0.3, 6).Concat(Line(3999.3, 0, 10))), x => { if (!mm && x.Au.Current != null && x.Au.Current.BeLockArmed) { mm = true; x.Au.SetManualManage(true); } });
             Check(mm && !r.Sent.Any(x => x.StartsWith("CLOSEALL")) && r.Au.Suggestion.StartsWith("CLOSE ALL XAUUSD") && r.Au.Suggestion.Contains("BE PROFIT"), "✋ MANUAL MANAGE: the breakeven CLOSE ALL is a 💡 suggestion, nothing sent", "sugg " + r.Au.Suggestion + " | " + Tail(r));
         }
+        // ---------------------------------------------------------------- 11. ⏸ the AUTOMATION PAUSED popup: once per stop by hand, never resumes / sends
+        {
+            var s = His(); s.OnManual = "STOP"; s.BeLock = false; int ticks = 0, pops = 0, sentAtStop = -1, stage = 0, at = 0; var r0 = new List<string>();
+            var r = Run(s, flat, Line(4000, 0, 120).ToArray(), x =>
+            {
+                ticks++; if (x.Au.TakeHandPopup()) pops++;
+                if (stage == 0 && x.Au.Current != null && ticks > 20) { stage = 1; at = ticks; x.Sb.Command("ORDER", "XAUUSD", "SELL", 0.05, 0.0, 0.0, 0.0); }                    // a trade by hand → stop + popup
+                else if (stage == 1 && x.Au.HandStopped && ticks > at + 20) { stage = 2; at = ticks; sentAtStop = x.Sent.Count; r0.Add("pops@stop " + pops); x.Sb.Command("ORDER", "XAUUSD", "BUY", 0.02, 0.0, 0.0, 0.0); }   // another while stopped → no 2nd popup
+                else if (stage == 2 && ticks > at + 20) { stage = 3; at = ticks; r0.Add("pops@2nd " + pops + " sent " + (x.Sent.Count - sentAtStop) + " running " + x.Au.Running); x.Au.Start(x.Sb, x.Au.Set, true); }   // ▶ RESUME (the user's own action)
+                else if (stage == 3 && x.Au.Running && ticks > at + 20) { stage = 4; x.Sb.Command("ORDER", "XAUUSD", "SELL", 0.03, 0.0, 0.0, 0.0); }                      // a new stop → a new popup
+            });
+            Check(stage == 4 && r0[0] == "pops@stop 1" && r0[1] == "pops@2nd 1 sent 0 running False" && pops == 2 && r.Au.HandStopped && HedgeAuto.HandPopupText("XAUUSD", "CLOSED BUY 0.10 #123") == "You traded XAUUSD by hand (CLOSED BUY 0.10 #123).\nThe automation will not send anything until you resume it.\nTo resume: 🛡 HEDGE tab ▸ ▶ RESUME AUTOMATION",
+                "⏸ popup: ONE per stop by hand (a 2nd hand trade while stopped adds none, nothing sent, still stopped), a new one only after a resume + a new stop; the text says what and how to resume", "stage " + stage + " " + string.Join(" | ", r0) + " pops " + pops);
+            var sa = s.Copy(); sa.OnManual = "ADOPT"; int popsA = 0, tA = 0; bool doneA = false;
+            var ra = Run(sa, flat, Line(4000, 0, 60).ToArray(), x => { tA++; if (x.Au.TakeHandPopup()) popsA++; if (!doneA && x.Au.Current != null && tA > 20) { doneA = true; x.Sb.Command("ORDER", "XAUUSD", "SELL", 0.05, 0.0, 0.0, 0.0); } });
+            Check(doneA && popsA == 0 && !ra.Au.HandStopped, "⏸ ✋ ADOPT mode: it does not stop → no popup");
+        }
         // ---------------------------------------------------------------- 7. 🎨 the colour rule
         {
             Check(Tones.Of(7268.4) == 1 && Tones.Of(-0.01) == -1 && Tones.Of(0) == 0 && Tones.Of(0.004) == 0 && Tones.Of(double.NaN) == 0,

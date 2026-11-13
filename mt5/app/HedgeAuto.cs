@@ -518,9 +518,14 @@ namespace KeystoneMT5
         DateTime handWait = DateTime.MinValue; IBroker lastBroker;
         static bool BrokerClosed(Snap sn, DateTime since) { return sn.Deals.Any(d => d.Time >= since && d.Entry == "OUT" && (d.Reason == "SL" || d.Reason == "TP" || d.Reason == "SO" || d.Reason == "STOPOUT")); }   // the broker closed a leg (not you)
         public bool StopsOnHand { get { return Running && Set != null && Set.OnManual == "STOP" && !ManualManage; } }
+        bool handPopup;
+        // ⏸ 09q (user's request): the small "AUTOMATION PAUSED" popup — true ONCE per stop by hand (the window asks, then it is consumed); display only
+        public bool TakeHandPopup() { bool b = handPopup; handPopup = false; return b; }
+        public static string HandPopupText(string sym, string what) { return "You traded " + (string.IsNullOrEmpty(sym) ? "the symbol" : sym) + " by hand (" + what + ").\nThe automation will not send anything until you resume it.\nTo resume: 🛡 HEDGE tab ▸ ▶ RESUME AUTOMATION"; }
         public void HandStop(string what)
         {
             if (!StopsOnHand) return;
+            if (!HandStopped) handPopup = true;   // 09q: ONE popup per stop (a new one only after a resume and a new stop)
             stopKnown = new HashSet<long>(engineSeen); ManualAction(what); HandStopped = true; HandWhat = what; HandAt = DateTime.Now; Running = false; Phase = "OFF"; pendId = null;
             StopReason = "⏸ you traded by hand: " + what;
             TellNow("⏸ AUTOMATION STOPPED — you traded by hand (" + what + "). Your positions are untouched (nothing was closed or sent). To continue: 🛡 HEDGE ▸ ▶ RESUME AUTOMATION.");
@@ -697,7 +702,7 @@ namespace KeystoneMT5
         {
             var oldIt = Current;   // 09h: an iteration left open by a stop
             Set = s.Copy(); Running = true; StraddleRef = double.NaN; LadderHi = LadderLo = double.NaN; Locked = false; lockFrom = 0; StopReason = ""; blockedKey = "~"; lastDir = 0; engDir = 0; vwapSkip = ""; AggDir = 0; AggLevel = double.NaN; prevBid = double.NaN; pendId = null; PauseUntil = DateTime.MinValue; Current = null;
-            HandStopped = false; HandWhat = ""; handFrom = DateTime.MinValue; NoCatchUp = false; catchNoted = false; Snap sn = Read(b); Now = sn.Now; HandBaseline(sn); stopKnown = null; engineSeen.Clear(); foreach (var p in sn.Pos) engineSeen.Add(p.Ticket);
+            HandStopped = false; handPopup = false; HandWhat = ""; handFrom = DateTime.MinValue; NoCatchUp = false; catchNoted = false; Snap sn = Read(b); Now = sn.Now; HandBaseline(sn); stopKnown = null; engineSeen.Clear(); foreach (var p in sn.Pos) engineSeen.Add(p.Ticket);
             if (oldIt != null && !oldIt.Done && sn.Pos.Count == 0) CloseStopped(oldIt, sn.Deals, s.Symbol, sn.Now, "");   // 09h: RESUME on a flat account — the old iteration closes first (never "open (+0.00)" forever) handStartPos.Clear(); foreach (var p in sn.Pos) handStartPos.Add(p.Ticket);
             Note("▶ START " + Set.Symbol + " " + Tf.Name(Set.Tf) + " • entry " + Set.EntryLots.ToString("0.##", IC) + " • add-on " + Set.AddLots.ToString("0.##", IC) + " • target $" + Set.Target.ToString("0.##", IC) + " • max drawdown " + (Set.MaxDrawdown > 0 ? "$" + Set.MaxDrawdown.ToString("0.##", IC) : "none") + " • first " + Set.FirstDir + " • next " + (Set.NextStart == "PAUSE" ? "pause " + Set.PauseSec + " s" : "the next break"));
             if (sn.Pos.Count > 0 && adopt)
