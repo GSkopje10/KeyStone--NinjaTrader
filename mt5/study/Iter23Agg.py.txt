@@ -1,0 +1,22 @@
+import sys,glob,collections,re,os
+d=sys.argv[1]
+V=collections.defaultdict(dict); IT=collections.defaultdict(list); LEFT=collections.defaultdict(list); BLOW=collections.Counter()
+for f in glob.glob(d+'/r_*.txt'):
+    m=re.match(r'r_(.+)_(\d{4})\.txt',os.path.basename(f)); v,y=m.group(1),m.group(2)
+    for l in open(f,encoding='utf-8'):
+        a=l.rstrip('\n').split('\t')
+        if a[0]=='RES': V[v][y]=a
+        elif a[0]=='IT': IT[v].append(a)
+        elif a[0]=='LEFT': LEFT[v].append(a)
+        elif l.startswith('BLOW'): BLOW[v]+=1
+yrs=['2020','2021','2022','2023','2024','2025','2026']
+print('%-18s %5s %9s %9s %6s %5s %5s %6s %6s %8s  per-year (closed+open)'%('variant','yrs','closed','net','blows','hard','iters','h/it','avgmin','worstit'))
+rows=[]
+for v,ys in V.items():
+    if len(ys)<7: pass
+    closed=sum(float(ys[y][5]) for y in ys); op=sum(float(ys[y][14]) for y in ys); net=closed+op
+    bl=sum(int(ys[y][7]) for y in ys); hs=sum(int(ys[y][8]) for y in ys); n=sum(int(ys[y][3]) for y in ys)
+    hpi=sum(float(ys[y][9])*int(ys[y][3]) for y in ys)/max(1,n); am=sum(float(ys[y][10])*int(ys[y][3]) for y in ys)/max(1,n); wi=min(float(ys[y][11]) for y in ys)
+    py=' '.join('%s:%+.0f'%(y[2:],float(ys[y][5])+float(ys[y][14])) for y in yrs if y in ys)
+    rows.append((net,'%-18s %5d %9.0f %9.0f %6d %5d %5d %6.2f %6.0f %8.0f  %s'%(v,len(ys),closed,net,bl,hs,n,hpi,am,wi,py)))
+for r in sorted(rows,reverse=True): print(r[1])

@@ -1,0 +1,52 @@
+import sys,csv,collections,glob,os
+base=sys.argv[1]
+H={}; IT={}
+for d in sorted(glob.glob(base+'/exp*')+glob.glob(base+'/export_*')):
+    if not os.path.exists(d+'/10-hedges.csv'): continue
+    acct=[l for l in open(d+'/00-README.txt',encoding='utf-8') if l.startswith('account')][0].split()[1]
+    its={}
+    for r in csv.DictReader(open(d+'/02-iterations.csv',encoding='utf-8')):
+        its[r['n']]=r
+        IT[(acct,r['start'])]=r
+    for r in csv.DictReader(open(d+'/10-hedges.csv',encoding='utf-8')):
+        if r['kind']!='HEDGE': continue
+        k=(acct,r['time'],r['side'],r['price'])
+        it=its.get(r['iteration'])
+        r['it']=it; r['acct']=acct
+        if k not in H or (it and it.get('done')=='1'): H[k]=r
+H=list(H.values())
+def ctx(r,k):
+    for kv in r['context'].split(';'):
+        if kv.startswith(k+'='): return kv.split('=',1)[1]
+print('hedges',len(H),'iterations',len(IT))
+def show(name,key,rows=H):
+    g=collections.defaultdict(list)
+    for r in rows: g[key(r)].append(r)
+    print('--',name)
+    for k in sorted(g, key=str):
+        l=g[k]; w=sum(int(r['whipsaw']) for r in l)
+        print('  %-14s n=%3d whipsaw=%3d (%3.0f%%) best30=%5.1f worst30=%5.1f'%(k,len(l),w,100*w/len(l),sum(float(r['best_30min']) for r in l)/len(l),sum(float(r['worst_30min']) for r in l)/len(l)))
+show('hedges_before',lambda r:min(5,int(r['hedges_before'])))
+show('session',lambda r:ctx(r,'session'))
+def rb(r):
+    rng=float(r['range_high'])-float(r['range_low']); a=float(r['atr']); x=rng/a if a>0 else 0
+    return '<2' if x<2 else '2-4' if x<4 else '4-6' if x<6 else '>=6'
+show('range/ATR(M1)',rb)
+show('range/ATR(M1), 3rd+ hedge',rb,[r for r in H if int(r['hedges_before'])>=2])
+show('vol',lambda r:ctx(r,'vol'))
+show('withTrend',lambda r:ctx(r,'withTrend'))
+show('trend60',lambda r:ctx(r,'trend60'))
+# iterations: the 3rd hedge's range/ATR → how deep and how it ended
+print('-- iterations by the range at their 3rd hedge (range/ATR M1), outcome')
+g=collections.defaultdict(list)
+for r in H:
+    if int(r['hedges_before'])==2 and r['it'] and r['it'].get('done')=='1': g[rb(r)].append(r['it'])
+for k in sorted(g):
+    l=g[k]; print('  %-6s n=%2d  median worst %7.0f  results %s'%(k,len(l),sorted(float(x['max_drawdown']) for x in l)[len(l)//2],' '.join('%.0f'%float(x['result']) for x in l)))
+dist=collections.Counter()
+for k,r in IT.items():
+    if r.get('done')!='1': continue
+    a=int(r['addons']); dist[min(a,6)]+=1
+print('iterations by add-ons',sorted(dist.items()))
+deep=[r for r in IT.values() if r.get('done')=='1' and int(r['addons'])>=4]
+for r in sorted(deep,key=lambda r:r['start']): print('  deep',r['start'],r['first'],'addons',r['addons'],'worst',r['max_drawdown'],'res',r['result'],r['reason'][:30],'min',int(float(r['seconds'] or 0))//60,'sess',r.get('ctx_session'),'trend',r.get('ctx_trend60'),'vol',r.get('ctx_vol'))

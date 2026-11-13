@@ -1,0 +1,255 @@
+// iter23 bench (mt5/docs/iter23-study.md): a console project compiling mt5/app/{Bridge,Bars,Sim,SimAccount,PoolStore,HedgeLab,HedgeAuto,TradeWatch,DayLab,SetupScan,Race,ManualTrack,TrendStack,StepIn,SwingHedge,AddProtect,TickRecorder,Radar,WhatIf,Continuity,HedgeDecode,PostMortem,DataDir}.cs + study/Gold.cs + this file; his.txt = the export 01-settings.txt (CR stripped)
+// iter23 study (mt5/docs/iter23-study.md): the user's DEMO iteration #23 (12–13 Nov, XAUUSD M1, DEFENDER) replayed on the export's REAL ticks
+// with the app's own HedgeAuto on the BACKTEST SimBroker (Step + GuardStep + ProtectStep on every tick, as the app's tab does), what-if variants,
+// and the same variants + scenario rules on the 6-year bench (data/MGC 1-minute gold as XAUUSD, synthetic ticks). Research only: never MT5.
+// usage: dotnet it23.dll case  <variant> <export dir> [cont]            (cont = keep the automation running to the end of the data)
+//        dotnet it23.dll bench <variant> <from yyyy-MM-dd> <to> <balance>
+// variant = tokens joined by '+':  LEAD (as-is) | SW1 SW2 SW3 (🪜 SWING2 N) | C (SWING2 on a CLOSED candle) | STP (🚑 STEP IN sim defaults) | STP50 (MAX RISK 50 %)
+//   RG (🛡 RISK GUARD LOCK) | ADV (hedge size ADVANTAGE = a fixed 0.1 lead) | SAME | D8 / D10 (max hedge distance) | HOLD (no breakeven exits: guard / rescue / BE-after off → the +$ target)
+//   NOSC (no SCALE OUT at all) | BONS (no scale-out while a BREAKOUT runs) | TRAIL (breakout: no scale-out, no BE exit, trailing stop) | TRAILNC (TRAIL + no compress)
+//   RE (re-entry: an iteration closed at breakeven during a breakout → the next one starts at once WITH the breakout)
+//   CHOPBE (TIGHT RANGE recognised → the exit becomes breakeven at once, no wait) | XG0 (no exit guard)
+using System; using System.Collections.Generic; using System.Globalization; using System.IO; using System.Linq; using KeystoneMT5;
+
+public sealed class Policy
+{
+    static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+    public bool BoNoScale, Trail, TrailNoCmp, ReEntry, TightAdv, TightRg; public int EodMin; public bool EodProfitOnly; public int EodCloses; public double EodSum; public double BoK = 1.0, TrailK = 2.0;
+    AutoSettings baseSet; int iterN = -1, tradeIdx = 0; public double Lo = double.NaN, Hi = double.NaN; public int Hedges; bool entrySeen;
+    public bool BoActive, Armed; public int BoDir; double best; DateTime lastBar = DateTime.MinValue; public double Atr5 = double.NaN, Atr1 = double.NaN;
+    public int PendingReDir; public int ReEntries, Breakouts, TrailExits; public string Last = "";
+    // scenario flags per iteration (recorded for every variant)
+    public readonly Dictionary<int, string> Flags = new Dictionary<int, string>(); public DateTime IterStart; public double RangeAt3 = double.NaN, AtrAt3 = double.NaN; public DateTime At3;
+    public double BoBest = 0;
+    void Flag(int n, string f) { string s; Flags.TryGetValue(n, out s); s = s ?? ""; if (!(";" + s + ";").Contains(";" + f + ";")) Flags[n] = s == "" ? f : s + ";" + f; }
+
+    public void Restore(HedgeAuto au)
+    {
+        if (baseSet == null) return; var s = au.Set;
+        s.ScaleOut = baseSet.ScaleOut; s.CompressMode = baseSet.CompressMode; s.ExitGuard = baseSet.ExitGuard; s.BeAfter = baseSet.BeAfter; s.Rescue = baseSet.Rescue; s.BeLock = baseSet.BeLock; s.Target = baseSet.Target; s.DangerExit = baseSet.DangerExit; s.HedgeSize = baseSet.HedgeSize; s.RiskGuard = baseSet.RiskGuard;
+    }
+    public void Pre(SimBroker sb, HedgeAuto au)
+    {
+        if (!au.Running) return;
+        if (baseSet == null) baseSet = au.Set.Copy();
+        var it = au.Current;
+        TrackLeft(sb);
+        if (it == null || it.Done) { if (iterN != -1) { OnClosed(sb, au); Restore(au); iterN = -1; } return; }
+        if (it.N != iterN)
+        {
+            if (iterN != -1) OnClosed(sb, au); Restore(au); iterN = it.N; Lo = Hi = double.NaN; Hedges = 0; entrySeen = false; BoActive = false; Armed = false; BoDir = 0; IterStart = it.Start; RangeAt3 = AtrAt3 = double.NaN; BoBest = 0;
+            if (au.Set.FirstDir != "AUTO" && PendingReDir == 0) au.Set.FirstDir = "AUTO";
+        }
+        for (; tradeIdx < au.Trades.Count; tradeIdx++)
+        {
+            var t = au.Trades[tradeIdx]; if (t.Iter != it.N || (t.Side != "BUY" && t.Side != "SELL")) continue;
+            Lo = double.IsNaN(Lo) ? t.Price : Math.Min(Lo, t.Price); Hi = double.IsNaN(Hi) ? t.Price : Math.Max(Hi, t.Price);
+            if (entrySeen) Hedges++; entrySeen = true;
+            if (Hedges == 3 && double.IsNaN(RangeAt3)) { RangeAt3 = Hi - Lo; AtrAt3 = Atr5; At3 = t.Time; if (!double.IsNaN(Atr5) && Atr5 > 0 && RangeAt3 < 4 * Atr5) { Flag(it.N, "TIGHT"); if (TightAdv) au.Set.HedgeSize = "ADVANTAGE"; if (TightRg) au.Set.RiskGuard = true; } }
+        }
+        double bid, ask; DateTime now; int open; double net;
+        lock (sb.State.Gate)
+        {
+            var st = sb.State; now = st.ServerNow; var q = st.Quotes["XAUUSD"]; bid = q.Bid; ask = q.Ask; open = st.Positions.Count; net = st.Positions.Sum(p => p.Dir * p.Lots);
+            var m1 = st.SeriesOf("XAUUSD", 1).Bars;
+            if (m1.Count > 20 && m1[m1.Count - 1].Time != lastBar)
+            {
+                lastBar = m1[m1.Count - 1].Time;
+                var m5 = st.SeriesOf("XAUUSD", 5).Bars; int e5 = m5.Count - 1; while (e5 > 0 && m5[e5].Time.AddMinutes(5) > now) e5--;
+                Atr5 = TrendDetect.Atr(m5, e5, 14); int e1 = m1.Count - 1; while (e1 > 0 && m1[e1].Time.AddMinutes(1) > now) e1--; Atr1 = TrendDetect.Atr(m1, e1, 14);
+            }
+        }
+        if (EodMin > 0 && open > 0 && au.Set.Target > -1e8)
+        {   // CLOSE ALL before the daily rollover (17:00 New York = 00:00 server): EodMin minutes before it, through the engine's own close (its TAKE PROFIT path)
+            var ny = now.AddHours(-7); int m = ny.Hour * 60 + ny.Minute;
+            if (m >= 17 * 60 - EodMin && m < 17 * 60 && (!EodProfitOnly || au.LiveTotal().Item1 >= Math.Max(0.5, baseSet.GuardKeep))) { double totE = au.LiveTotal().Item1; EodCloses++; EodSum += totE; Flag(it.N, "EODCLOSE"); au.Set.Target = -1e9; if (Environment.GetEnvironmentVariable("VERB") == "1") Console.WriteLine("P " + now.ToString("MM-dd HH:mm:ss", IC) + " EOD CLOSE total " + totE.ToString("0.00", IC)); return; }
+        }
+        if (open == 0 || double.IsNaN(Atr5) || double.IsNaN(Hi)) return;
+        int d = net > 0.005 ? 1 : net < -0.005 ? -1 : 0; double px = d > 0 ? bid : ask;
+        // BREAKOUT from the basket's range: ≥ 2 add-ons, the net WITH the move, the price ≥ BoK × ATR(M5) beyond the range of every leg's price
+        bool beyond = d != 0 && it.AddOns >= 2 && (d > 0 ? bid >= Hi + BoK * Atr5 : ask <= Lo - BoK * Atr5);
+        bool inside = d == 0 || (d > 0 ? bid < Hi : ask > Lo);
+        if (!BoActive && beyond) { BoActive = true; BoDir = d; best = px; Breakouts++; Flag(it.N, "BREAKOUT"); Last = now.ToString("MM-dd HH:mm", IC) + " breakout " + (d > 0 ? "UP" : "DOWN") + " range " + Lo.ToString("0.00", IC) + "–" + Hi.ToString("0.00", IC) + " ATR5 " + Atr5.ToString("0.00", IC); if (Environment.GetEnvironmentVariable("VERB") == "1") Console.WriteLine("P " + Last); Apply(au, true); }
+        else if (BoActive && (inside || d != BoDir) && !Armed) { BoActive = false; Apply(au, false); if (Environment.GetEnvironmentVariable("VERB") == "1") Console.WriteLine("P " + now.ToString("MM-dd HH:mm", IC) + " breakout over (back inside)"); }
+        if (!BoActive) return;
+        best = BoDir > 0 ? Math.Max(best, bid) : Math.Min(best, ask); BoBest = Math.Max(BoBest, BoDir * (best - (BoDir > 0 ? Hi : Lo)) / Atr5);
+        if (!Trail) return;
+        double tot = au.LiveTotal().Item1;
+        if (!Armed && tot >= baseSet.Target) { Armed = true; if (Environment.GetEnvironmentVariable("VERB") == "1") Console.WriteLine("P " + now.ToString("MM-dd HH:mm", IC) + " trail armed, total " + tot.ToString("0.00", IC)); }
+        if (Armed && (BoDir * (px - best) <= -TrailK * Atr5 || tot <= Math.Max(0.5, baseSet.GuardKeep)))
+        {   // the trailing stop: the engine's own close path (its TAKE PROFIT fires on the next step)
+            au.Set.Target = -1e9; TrailExits++; Armed = false; BoActive = false;
+            if (Environment.GetEnvironmentVariable("VERB") == "1") Console.WriteLine("P " + now.ToString("MM-dd HH:mm:ss", IC) + " TRAIL EXIT at " + px.ToString("0.00", IC) + " best " + best.ToString("0.00", IC) + " total " + tot.ToString("0.00", IC));
+        }
+    }
+    // after an iteration closed while a breakout ran: how far did the price go on its way (points) in 60 / 240 minutes
+    public readonly List<double[]> Left = new List<double[]>(); readonly List<double[]> leftOpen = new List<double[]>(); public readonly List<string> LeftTxt = new List<string>();
+    void OnClosed(SimBroker sb, HedgeAuto au)
+    {
+        var last = au.Iterations.LastOrDefault(x => x.N == iterN); if (last == null || !BoActive) return;
+        double bid; DateTime now; lock (sb.State.Gate) { bid = sb.State.Quotes["XAUUSD"].Bid; now = sb.State.ServerNow; }
+        leftOpen.Add(new double[] { now.Ticks, bid, BoDir, 0, 0, last.Result, Atr5, iterN });
+    }
+    void TrackLeft(SimBroker sb)
+    {
+        if (leftOpen.Count == 0) return; double bid; DateTime now; lock (sb.State.Gate) { bid = sb.State.Quotes["XAUUSD"].Bid; now = sb.State.ServerNow; }
+        for (int i = leftOpen.Count - 1; i >= 0; i--)
+        {
+            var x = leftOpen[i]; double mv = x[2] * (bid - x[1]); double mins = (now - new DateTime((long)x[0])).TotalMinutes;
+            if (mins <= 60) x[3] = Math.Max(x[3], mv); x[4] = Math.Max(x[4], mv);
+            if (mins >= 240) { Left.Add(x); LeftTxt.Add(new DateTime((long)x[0]).ToString("yyyy-MM-dd HH:mm", IC) + "\t" + x[5].ToString("0.00", IC) + "\t" + x[3].ToString("0.00", IC) + "\t" + x[4].ToString("0.00", IC) + "\t" + x[6].ToString("0.00", IC)); leftOpen.RemoveAt(i); }
+        }
+    }
+    void Apply(HedgeAuto au, bool on)
+    {
+        var s = au.Set;
+        if (BoNoScale || Trail) s.ScaleOut = on ? false : baseSet.ScaleOut;
+        if (Trail) { s.ExitGuard = on ? false : baseSet.ExitGuard; s.BeAfter = on ? 0 : baseSet.BeAfter; s.Rescue = on ? false : baseSet.Rescue; s.BeLock = on ? false : baseSet.BeLock; s.Target = on ? 1e9 : baseSet.Target; s.DangerExit = on ? false : baseSet.DangerExit; }
+        if (TrailNoCmp) s.CompressMode = on ? "OFF" : baseSet.CompressMode;
+    }
+}
+
+public static class P
+{
+    static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+    static SimSpec Spec() { return new SimSpec { Name = "XAUUSD", Digits = 2, Point = 0.01, Contract = 100, TickValue = 1, TickSize = 0.01, VolMin = 0.01, VolStep = 0.01, VolMax = 100, NyOffsetHours = -7, SwapLong = -62.4, SwapShort = 28.1, SwapMode = 1, Swap3Day = DayOfWeek.Wednesday }; }
+    static AutoSettings Settings(string v, string his)
+    {
+        var s = AutoSettings.Load(string.Join(";", File.ReadAllLines(his).Where(l => l.Contains("=")).Select(l => l.Trim())));
+        s.TrackManual = false; s.Windows = ""; s.OnManual = "ADOPT"; s.StepIn = false;
+        var tk = v.Split('+');
+        Func<string, bool> has = x => tk.Contains(x);
+        foreach (var t in tk) if (t.Length == 3 && t.StartsWith("SW")) { s.HedgeTrigger = "SWING2"; s.SwN = t[2] - '0'; }
+        if (has("C")) s.SwBreak = "CLOSE";
+        if (has("STP")) { s.StepIn = true; s.StepInRisk = 100; s.StepInFloor = 0; }
+        if (has("STP50")) { s.StepIn = true; s.StepInRisk = 50; s.StepInFloor = 0; }
+        if (has("RG")) s.RiskGuard = true;
+        if (has("ADV")) s.HedgeSize = "ADVANTAGE"; if (has("SAME")) s.HedgeSize = "SAME";
+        if (has("D8")) s.HedgeCap = 8; if (has("D10")) s.HedgeCap = 10; if (has("D3")) s.HedgeCap = 3;
+        if (has("HOLD")) { s.ExitGuard = false; s.BeAfter = 0; s.Rescue = false; s.DangerExit = false; }
+        if (has("XG0")) s.ExitGuard = false;
+        if (has("NOSC")) s.ScaleOut = false;
+        if (has("NOCMP")) s.CompressMode = "OFF";
+        if (has("NOLATE")) s.Windows = "19:00-16:00";
+        foreach (var t in tk) if (t.StartsWith("EODP")) s.Windows = "18:00-" + new TimeSpan(17, 0, 0).Subtract(TimeSpan.FromMinutes(int.Parse(t.Substring(4)))).ToString(@"hh\:mm"); else if (t.StartsWith("EOD")) s.Windows = "18:00-" + new TimeSpan(17, 0, 0).Subtract(TimeSpan.FromMinutes(int.Parse(t.Substring(3)))).ToString(@"hh\:mm");   // no new iteration from the forced close to the reopen
+        if (has("NE45")) s.Windows = "18:00-16:15";   // no new iteration in the last 45 min before the 17:00 NY close
+        return s;
+    }
+    static Policy MakePolicy(string v) { var tk = v.Split('+'); var p = new Policy { TightAdv = tk.Contains("TADV"), TightRg = tk.Contains("TRG"), BoNoScale = tk.Contains("BONS"), Trail = tk.Contains("TRAIL") || tk.Contains("TRAILNC"), TrailNoCmp = tk.Contains("TRAILNC"), ReEntry = tk.Contains("RE") }; foreach (var t in tk) { if (t.StartsWith("EODP")) { p.EodMin = int.Parse(t.Substring(4)); p.EodProfitOnly = true; } else if (t.StartsWith("EOD")) p.EodMin = int.Parse(t.Substring(3)); if (t.StartsWith("K") && t.Length > 1 && char.IsDigit(t[1])) p.TrailK = double.Parse(t.Substring(1), IC); if (t.StartsWith("B") && t.Length > 1 && char.IsDigit(t[1])) p.BoK = double.Parse(t.Substring(1), IC); } return p; }
+
+    // the guard, as the app's tab calls it (every tick) — in the bench only when it can matter (the total at / above the lowest exit level, or a new worst)
+    static double lastWorstCall = 0; static int guardIter = -1;
+    static void Guard(SimBroker sb, HedgeAuto au, bool everyTick)
+    {
+        if (everyTick) { au.GuardStep(sb, au.Set); au.ProtectStep(sb, au.Set); return; }
+        if (au.Current == null) { if (!au.Running) { au.GuardStep(sb, au.Set); au.ProtectStep(sb, au.Set); } return; }
+        if (au.Current.N != guardIter) { guardIter = au.Current.N; lastWorstCall = 0; au.GuardStep(sb, au.Set); return; }
+        double tot = au.LiveTotal().Item1;
+        if (tot >= au.Set.GuardKeep - 0.01 || tot < lastWorstCall - 5) { if (tot < lastWorstCall) lastWorstCall = tot; au.GuardStep(sb, au.Set); }
+    }
+
+    public static int Main(string[] a)
+    {
+        if (a[0] == "case") return Case(a); return Bench(a);
+    }
+
+    static List<SimTick> Ticks(string file, DateTime day)
+    {
+        var raw = File.ReadAllBytes(file); var l = new List<SimTick>(raw.Length / 20);
+        for (int i = 0; i + 20 <= raw.Length; i += 20) l.Add(new SimTick { T = day.AddMilliseconds(BitConverter.ToInt32(raw, i)), Bid = BitConverter.ToDouble(raw, i + 4), Ask = BitConverter.ToDouble(raw, i + 12) });
+        return l;
+    }
+
+    static int Case(string[] a)
+    {
+        string v = a[1], dir = a[2].TrimEnd('/') + "/"; bool cont = a.Length > 3 && a[3] == "cont";
+        var t0 = new DateTime(2026, 11, 12, 18, 16, 20);
+        var bars = File.ReadAllLines(dir + "08-candles-XAUUSD-M1.csv").Skip(1).Select(l => l.Split(',')).Select(x => new Mt5Bar { Time = DateTime.Parse(x[0], IC), O = double.Parse(x[1], IC), H = double.Parse(x[2], IC), L = double.Parse(x[3], IC), C = double.Parse(x[4], IC), V = (long)double.Parse(x[5], IC), Spread = 20 }).OrderBy(b => b.Time).ToList();
+        var ticks = Ticks(dir + "17-ticks/XAUUSD-20261112-ICMarketsSC-MT5.ticks", new DateTime(2026, 11, 12)); ticks.AddRange(Ticks(dir + "17-ticks/XAUUSD-20261113-ICMarketsSC-MT5.ticks", new DateTime(2026, 11, 13)));
+        // the recorder has no tick between 18:16:10.9 and 18:16:32.6; the STORY gives the quote of the real entry (bid 3877.42 / ask 3877.59 at 18:16:20) → that one quote is added
+        if (Environment.GetEnvironmentVariable("NOINJECT") != "1") { ticks.Add(new SimTick { T = t0, Bid = 3877.42, Ask = 3877.59 }); ticks = ticks.OrderBy(x => x.T).ToList(); }
+        var s = Settings(v, "his.txt"); s.FirstDir = "BUY"; s.FullAuto = false; if (!cont) { s.NextStart = "PAUSE"; s.PauseSec = 999999; s.MaxIterations = 1; }
+        double bal0 = 7177.88;
+        var sb = new SimBroker(); var err = sb.Load(new SimSettings { Symbol = "XAUUSD", From = new DateTime(2026, 11, 12), To = new DateTime(2026, 11, 13), Balance = bal0, CommissionPerLot = 0, Leverage = 500, Kind = "STANDARD", FixedSpread = -1, StopOutPct = 50 }, new List<Tuple<SimSpec, List<Mt5Bar>, List<SimTick>>> { Tuple.Create(Spec(), bars, ticks) });
+        if (err != "") { Console.WriteLine("ERR " + err); return 1; }
+        RadarModel.Default = RadarModel.Parse(File.ReadAllText("/home/user/keystone--ninjatrader/mt5/app/danger-model.txt"));
+        var au = new HedgeAuto(); au.Send = (c, x, l) => sb.Command(c, x); au.StopOutPct = 50; sb.Playing = true; sb.Speed = 1;
+        while (!sb.Ended && sb.State.ServerNow < t0.AddSeconds(-1)) sb.Advance(0.25);
+        var pol = MakePolicy(v);
+        sb.OnTickHook = () => { pol.Pre(sb, au); au.Step(sb); Guard(sb, au, true); };
+        var chk = au.Check(sb, s); if (chk != "") { Console.WriteLine(chk); return 1; } au.Start(sb, s, false);
+        double minTot = 0; DateTime minAt = t0; double maxGross = 0; double minEq = 1e9; var path = new List<string>(); DateTime nextPath = t0;
+        int prevIt = -1; bool reSet = false;
+        while (!sb.Ended)
+        {
+            sb.Advance(1);
+            var cur = au.Current; double eq, bal, gross; lock (sb.State.Gate) { eq = sb.State.Account.Equity; bal = sb.State.Account.Balance; gross = sb.State.Positions.Sum(p => p.Lots); }
+            minEq = Math.Min(minEq, eq);
+            if (cur != null && cur.N == 1) { var tot = au.LiveTotal().Item1; if (tot < minTot) { minTot = tot; minAt = sb.State.ServerNow; } maxGross = Math.Max(maxGross, gross); }
+            if (sb.State.ServerNow >= nextPath && cur != null && cur.N == 1) { nextPath = nextPath.AddMinutes(15); path.Add(sb.State.ServerNow.ToString("HH:mm", IC) + " " + sb.State.Quotes["XAUUSD"].Bid.ToString("0.00", IC) + " " + au.LiveTotal().Item1.ToString("0", IC)); }
+            // RE: the iteration closed at breakeven while the breakout ran → start the next one at once WITH it
+            if (pol.ReEntry && cont && prevIt != -1 && (cur == null || cur.N != prevIt))
+            {
+                var last = au.Iterations.LastOrDefault(x => x.N == prevIt && x.Done);
+                if (last != null && pol.BoActive && (last.Reason.Contains("BREAKEVEN") || last.Reason.Contains("RESCUE")) && !reSet)
+                { reSet = true; int d = pol.BoDir; au.Stop("re-entry"); var s2 = au.Set.Copy(); s2.FirstDir = d > 0 ? "BUY" : "SELL"; pol.PendingReDir = d; au.Start(sb, s2, false); pol.PendingReDir = 0; pol.ReEntries++; Console.WriteLine("RE " + sb.State.ServerNow.ToString("HH:mm:ss", IC) + " next iteration " + s2.FirstDir); }
+            }
+            prevIt = cur != null ? cur.N : prevIt;
+            if (!cont && au.Current == null && au.Iterations.Count > 0 && au.Iterations[0].Done) break;
+        }
+        if (Environment.GetEnvironmentVariable("TRADES") == "1") foreach (var t in au.Trades) Console.WriteLine("T " + t.Iter + " " + t.Time.ToString("dd HH:mm:ss", IC) + " " + t.Side + " " + t.Lots + " @ " + t.Price.ToString("0.00", IC) + "  " + (t.Why.Length > 150 ? t.Why.Substring(0, 150) : t.Why));
+        if (Environment.GetEnvironmentVariable("STORY") == "1") foreach (var st in au.Story) Console.WriteLine("S " + st.Item2.Substring(0, Math.Min(400, st.Item2.Length)));
+        if (Environment.GetEnvironmentVariable("PATH15") == "1") foreach (var pth in path) Console.WriteLine("PATH " + pth);
+        var it = au.Iterations.FirstOrDefault(); double eqEnd; lock (sb.State.Gate) eqEnd = sb.State.Account.Equity;
+        int hedges = au.Trades.Count(t => t.Iter == 1 && (t.Side == "BUY" || t.Side == "SELL")) - 1;
+        string res = it == null ? "-" : it.Done ? it.Result.ToString("0.00", IC) : "open " + au.LiveTotal().Item1.ToString("0.00", IC);
+        Console.WriteLine(string.Join("\t", new object[] { "RES", v, "hedges " + hedges, "maxlots " + maxGross.ToString("0.00", IC), "worst " + minTot.ToString("0", IC), "worst% " + (100 * -minTot / bal0).ToString("0.0", IC), "at " + minAt.ToString("dd HH:mm", IC),
+            "end " + (it != null && it.Done ? it.End.ToString("dd HH:mm", IC) : "-"), "dur " + (it != null && it.Done ? HedgeAuto.Dur(it.End - it.Start) : "-"), "result " + res, "how " + (it != null ? it.Reason : ""),
+            "dataEnd " + sb.State.ServerNow.ToString("dd HH:mm", IC), "equityEnd−start " + (eqEnd - bal0).ToString("0.00", IC), "iters " + au.Iterations.Count, "minEq " + (minEq - bal0).ToString("0", IC), "flags " + string.Join(",", pol.Flags.Select(k => k.Key + ":" + k.Value)), "rangeAt3 " + pol.RangeAt3.ToString("0.00", IC) + " atr5 " + pol.AtrAt3.ToString("0.00", IC) }));
+        if (cont) foreach (var x in au.Iterations) Console.WriteLine("IT " + x.N + " " + x.Start.ToString("dd HH:mm", IC) + " " + x.FirstDir + " addons " + x.AddOns + " worst " + x.MaxDd.ToString("0", IC) + " " + (x.Done ? x.Result.ToString("0.00", IC) + " " + x.Reason + " " + x.End.ToString("dd HH:mm", IC) : "open " + au.LiveTotal().Item1.ToString("0.00", IC)));
+        return 0;
+    }
+
+    static int Bench(string[] a)
+    {
+        string v = a[1]; var from = DateTime.ParseExact(a[2], "yyyy-MM-dd", IC); var to = DateTime.ParseExact(a[3], "yyyy-MM-dd", IC); double bal = double.Parse(a[4], IC);
+        var bars = Gold.Load("/home/user/keystone--ninjatrader/data/MGC", from, to); foreach (var b in bars) b.Spread = 25;
+        var s = Settings(v, "his.txt");
+        RadarModel.Default = RadarModel.Parse(File.ReadAllText("/home/user/keystone--ninjatrader/mt5/app/danger-model.txt"));
+        var sb = new SimBroker(); var err = sb.Load(new SimSettings { Symbol = "XAUUSD", From = from, To = to, Balance = bal, CommissionPerLot = 0, Leverage = 500, Kind = "STANDARD", FixedSpread = 25, StopOutPct = 50 }, Spec(), bars);
+        if (err != "") { Console.WriteLine("ERR " + err); return 1; }
+        var au = new HedgeAuto(); au.RadarWfYear = 1; au.Send = (c, x, l) => sb.Command(c, x); au.StopOutPct = 50;
+        var pol = MakePolicy(v); bool noGuard = Environment.GetEnvironmentVariable("NOGUARD") == "1";
+        sb.OnTickHook = () => { pol.Pre(sb, au); au.Step(sb); if (!noGuard) Guard(sb, au, false); };
+        var chk = au.Check(sb, s); if (chk != "") { Console.WriteLine(chk); return 1; }
+        au.Start(sb, s, false); sb.Playing = true; sb.Speed = 60;
+        int blowups = 0; double minEq = 1e9; var t0 = DateTime.Now; int prevIt = -1; var reStarted = new HashSet<int>(); double swapSum = 0;
+        for (long k = 0; k < 80000000 && !sb.Ended; k++)
+        {
+            sb.Advance(0.5); double eq, b1; int open; lock (sb.State.Gate) { eq = sb.State.Account.Equity; b1 = sb.State.Account.Balance; open = sb.State.Positions.Count; } minEq = Math.Min(minEq, eq);
+            bool broke = !au.Running && HedgeAuto.IsBlowReason(au.StopReason), low = open == 0 && b1 < 0.1 * bal;
+            if (broke || low)
+            {
+                if (open > 0) { sb.Command("CLOSEALL", "XAUUSD", "ALL"); continue; }
+                blowups++; lock (sb.State.Gate) sb.Account.SetBalance(bal, sb.State.ServerNow); if (au.Running) au.Stop("💥 restart"); if (au.Check(sb, s) == "") au.Start(sb, s, false);
+                Console.WriteLine("BLOW " + sb.State.ServerNow.ToString("yyyy-MM-dd HH:mm", IC) + " " + b1.ToString("0", IC));
+            }
+            var cur = au.Current;
+            if (pol.ReEntry && prevIt != -1 && (cur == null || cur.N != prevIt) && !reStarted.Contains(prevIt) && au.Running)
+            {
+                var last = au.Iterations.LastOrDefault(x => x.N == prevIt && x.Done);
+                if (last != null && pol.BoActive && (last.Reason.Contains("BREAKEVEN") || last.Reason.Contains("RESCUE")) && (cur == null))
+                { reStarted.Add(prevIt); int d = pol.BoDir; au.Stop("re-entry"); var s2 = au.Set.Copy(); s2.FirstDir = d > 0 ? "BUY" : "SELL"; pol.PendingReDir = d; au.Start(sb, s2, false); pol.PendingReDir = 0; pol.ReEntries++; }
+            }
+            prevIt = au.Current != null ? au.Current.N : prevIt;
+            if (!au.Running && !broke) { if (au.Check(sb, s) == "") au.Start(sb, s, true); }
+        }
+        var its = au.Iterations.Where(x => x.Done).ToList(); double net = its.Sum(x => x.Result);
+        Console.WriteLine(string.Join("\t", new object[] { "RES", v, a[2].Substring(0, 7), its.Count, its.Count(x => x.Result >= 0), net.ToString("0", IC), (minEq - bal).ToString("0", IC), blowups, its.Count(x => x.Reason == "HARD STOP"),
+            its.Count > 0 ? its.Average(x => x.AddOns).ToString("0.00", IC) : "0", its.Count > 0 ? its.Average(x => (x.End - x.Start).TotalMinutes).ToString("0", IC) : "0", its.Count > 0 ? its.Min(x => x.MaxDd).ToString("0", IC) : "0", (DateTime.Now - t0).TotalSeconds.ToString("0", IC) + "s", "OPEN", au.Current != null ? au.LiveTotal().Item1.ToString("0", IC) : "0", au.Current != null ? au.Current.Start.ToString("yyyy-MM-dd", IC) : "-", "BO " + pol.Breakouts, "TX " + pol.TrailExits, "RE " + pol.ReEntries, "EOD " + pol.EodCloses + " " + pol.EodSum.ToString("0", IC) }));
+        // one line per iteration: the scenario flags (TIGHT = ≥ 3 hedges inside < 4 × ATR(M5); BREAKOUT = the price ≥ 1 ATR(M5) beyond the range WITH the net) and the outcome
+        foreach (var x in au.Iterations.Where(x => x.Done)) { string f; pol.Flags.TryGetValue(x.N, out f); Console.WriteLine(string.Join("\t", new object[] { "IT", x.N, x.Start.ToString("yyyy-MM-dd HH:mm", IC), ((x.End - x.Start).TotalMinutes).ToString("0", IC), x.AddOns, x.MaxGross.ToString("0.00", IC), x.MaxDd.ToString("0", IC), x.Result.ToString("0.00", IC), x.Reason.Replace("\t", " "), f ?? "" })); }
+        foreach (var l in pol.LeftTxt) Console.WriteLine("LEFT\t" + l);
+        return 0;
+    }
+}

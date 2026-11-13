@@ -1,0 +1,28 @@
+import sys,glob,collections,statistics as st
+d,v=sys.argv[1],sys.argv[2]
+its=[]
+for f in glob.glob(d+'/r_%s_*.txt'%v):
+    for l in open(f,encoding='utf-8'):
+        a=l.rstrip('\n').split('\t')
+        if a[0]=='IT': its.append(dict(start=a[2],mins=float(a[3]),add=int(a[4]),gross=float(a[5]),worst=float(a[6]),res=float(a[7]),why=a[8],fl=a[9] if len(a)>9 else ''))
+def summ(name,l):
+    if not l: print('%-34s n=0'%name); return
+    w=sorted(x['worst'] for x in l); r=[x['res'] for x in l]
+    print('%-34s n=%5d  net %9.0f  avg %7.1f  losers %4d  sum losers %9.0f  median worst %6.0f  p10 worst %7.0f  hard %d  median min %5.0f'%(name,len(l),sum(r),sum(r)/len(l),sum(1 for x in r if x<0),sum(x for x in r if x<0),w[len(w)//2],w[len(w)//10],sum(1 for x in l if 'HARD' in x['why']),st.median(x['mins'] for x in l)))
+summ('all',its)
+summ('0-2 add-ons',[x for x in its if x['add']<3])
+three=[x for x in its if x['add']>=3]
+summ('>=3 add-ons',three)
+summ('>=3 & TIGHT (range<4 ATR5 at 3rd)',[x for x in three if 'TIGHT' in x['fl']])
+summ('>=3 & not TIGHT',[x for x in three if 'TIGHT' not in x['fl']])
+summ('>=3 & BREAKOUT seen',[x for x in three if 'BREAKOUT' in x['fl']])
+summ('>=3 & TIGHT & BREAKOUT',[x for x in three if 'TIGHT' in x['fl'] and 'BREAKOUT' in x['fl']])
+summ('>=5 add-ons',[x for x in its if x['add']>=5])
+for k in ['HARD','RESCUE BE','RESCUE','EXIT GUARD BREAKEVEN','TARGET','DANGER']:
+    summ('closed by '+k,[x for x in its if k in x['why']])
+# session of start (NY = server-7)
+import datetime
+def ses(x):
+    t=datetime.datetime.strptime(x['start'],'%Y-%m-%d %H:%M')-datetime.timedelta(hours=7); m=t.hour*60+t.minute
+    return 'ASIA' if m>=1140 or m<180 else 'LONDON' if m<480 else 'NY AM' if m<720 else 'NY PM' if m<960 else 'LATE'
+for s in ['ASIA','LONDON','NY AM','NY PM','LATE']: summ('start '+s,[x for x in its if ses(x)==s])
