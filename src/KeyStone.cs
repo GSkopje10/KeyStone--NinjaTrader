@@ -25677,6 +25677,519 @@ namespace NinjaTrader.NinjaScript
             }
         }
     }
+    /* 🍂 BUILD 2026-11-13k — SEASONS + SCENES (display only: never an order, never a link, never a P/L / candle colour).
+       KeystoneSeasons = the season of a New York date (northern hemisphere, astronomical dates) + its ACCENT palette (title bar, glow line,
+       window background, button edges — the semantic green / red and the chart template are never touched); KeystoneScene = the procedural
+       landscapes as plain polygons / discs / dots / lines in pixels (the WPF view and the HTML preview draw the SAME layers);
+       KeystoneParticles = the light animation (snow / rain / leaves / sun rays / stars, ≤ 150, wrapped inside the header band);
+       KeystoneSeasonQuotes = the header line (a season quote every 3 h, read-only reminders first); KeystoneLookSettings = the choices per window;
+       KeystoneLookFiles = 📷 MY PICTURE / 🎞 MY VIDEO (the user's own files — KeyStone ships no photos). */
+    public sealed class KeystoneSeasonPalette
+    {
+        public string Season = "", Accent, Accent2, Deep, Sky1, Sky2, Glow, Ink, Mist;
+        public bool Frost;   // ❄ winter: a faint frost along the top of the header
+    }
+    public static class KeystoneSeasons
+    {
+        public static readonly string[] Names = { "FALL", "WINTER", "SPRING", "SUMMER" };
+        // northern hemisphere, the astronomical start dates (NY calendar date): spring Mar 20, summer Jun 21, fall Sep 22, winter Dec 21
+        public static string Of(DateTime nyDate)
+        {
+            int md = nyDate.Month * 100 + nyDate.Day;
+            if (md >= 1221 || md < 320) return "WINTER";
+            if (md < 621) return "SPRING";
+            if (md < 922) return "SUMMER";
+            return "FALL";
+        }
+        public static string Icon(string s) { return s == "FALL" ? "🍂" : s == "WINTER" ? "❄" : s == "SPRING" ? "🌸" : s == "SUMMER" ? "☀" : "◌"; }
+        public static string DefaultScene(string s) { return s == "FALL" ? "FOREST" : s == "WINTER" ? "SNOWPEAKS" : s == "SPRING" ? "WATERFALL" : s == "SUMMER" ? "OCEAN" : "MOUNTAINS"; }
+        public static string DefaultAnim(string s) { return s == "FALL" ? "LEAVES" : s == "WINTER" ? "SNOW" : s == "SPRING" ? "RAIN" : s == "SUMMER" ? "SUN" : "STARS"; }
+        public static KeystoneSeasonPalette Palette(string s)
+        {
+            switch (s)
+            {
+                case "FALL": return new KeystoneSeasonPalette { Season = s, Accent = "#E8A33D", Accent2 = "#C8693A", Deep = "#24121F", Sky1 = "#3B1F33", Sky2 = "#9A5238", Glow = "#F2B95A", Ink = "#F3DCC0", Mist = "#6E3B4E" };
+                case "WINTER": return new KeystoneSeasonPalette { Season = s, Accent = "#9FD8F0", Accent2 = "#C9D3DE", Deep = "#0B1630", Sky1 = "#0E1A33", Sky2 = "#2E4E78", Glow = "#BFE9FF", Ink = "#DCEBF7", Mist = "#4A6585", Frost = true };
+                case "SPRING": return new KeystoneSeasonPalette { Season = s, Accent = "#8EE3C1", Accent2 = "#F2A7C3", Deep = "#0E2A27", Sky1 = "#143A3A", Sky2 = "#3E8E8A", Glow = "#FFD1E0", Ink = "#E4F6EE", Mist = "#5CC8C2" };
+                case "SUMMER": return new KeystoneSeasonPalette { Season = s, Accent = "#F5C451", Accent2 = "#FF7F6B", Deep = "#0A2230", Sky1 = "#0E3A4F", Sky2 = "#E07A5F", Glow = "#FFE08A", Ink = "#FFF1D6", Mist = "#1E9AA8" };
+                default: return new KeystoneSeasonPalette { Season = "", Accent = "#00E5FF", Accent2 = "#7C4DFF", Deep = "#080B16", Sky1 = "#0A0F1E", Sky2 = "#1A2340", Glow = "#7DF9FF", Ink = "#96A5C3", Mist = "#2A3658" };   // the brand colours (season OFF)
+            }
+        }
+        // colour helpers on "#RRGGBB" / "#AARRGGBB"
+        public static int[] Argb(string hex)
+        {
+            var h = (hex ?? "#000000").TrimStart('#'); if (h.Length == 6) h = "FF" + h; if (h.Length != 8) return new[] { 255, 0, 0, 0 };
+            return new[] { Convert.ToInt32(h.Substring(0, 2), 16), Convert.ToInt32(h.Substring(2, 2), 16), Convert.ToInt32(h.Substring(4, 2), 16), Convert.ToInt32(h.Substring(6, 2), 16) };
+        }
+        public static string Hex(int a, int r, int g, int b) { Func<int, int> c = v => Math.Max(0, Math.Min(255, v)); return "#" + c(a).ToString("X2") + c(r).ToString("X2") + c(g).ToString("X2") + c(b).ToString("X2"); }
+        public static string Alpha(string hex, double a) { var x = Argb(hex); return Hex((int)Math.Round(255 * Math.Max(0, Math.Min(1, a))), x[1], x[2], x[3]); }
+        public static string Mix(string a, string b, double t) { var x = Argb(a); var y = Argb(b); t = Math.Max(0, Math.Min(1, t)); return Hex((int)Math.Round(x[0] + (y[0] - x[0]) * t), (int)Math.Round(x[1] + (y[1] - x[1]) * t), (int)Math.Round(x[2] + (y[2] - x[2]) * t), (int)Math.Round(x[3] + (y[3] - x[3]) * t)); }
+    }
+    public sealed class KeystoneSceneLayer
+    {
+        public string Kind = "POLY";   // POLY = a closed polygon (x, y …) • DISC = a radial glow (cx, cy, r) • DOTS = small circles (x, y, r …) • LINES = segments (x1, y1, x2, y2 …)
+        public List<double> Pts = new List<double>();
+        public string[] Colors = new string[0]; public double[] Offsets = new double[0];   // the gradient (#AARRGGBB), along the layer's bounding box
+        public bool Horizontal;   // the gradient left → right (else top → bottom)
+        public double Width = 1;   // LINES: the stroke
+        public string Tag = "";
+    }
+    public static class KeystoneScene
+    {
+        public static readonly string[] Names = { "MOUNTAINS", "WATERFALL", "FOREST", "OCEAN", "AURORA", "SNOWPEAKS" };
+        public static string Label(string s)
+        {
+            switch (s) { case "MOUNTAINS": return "⛰ MOUNTAINS AT DUSK"; case "WATERFALL": return "🏞 WATERFALL"; case "FOREST": return "🍂 FOREST • FALL LEAVES"; case "OCEAN": return "🌅 OCEAN SUNSET"; case "AURORA": return "🌌 NIGHT SKY • AURORA"; case "SNOWPEAKS": return "🏔 SNOWY PEAKS"; case "PICTURE": return "📷 MY PICTURE"; case "VIDEO": return "🎞 MY VIDEO"; default: return "NONE"; }
+        }
+        static KeystoneSceneLayer L(string kind, string tag, string[] c, double[] o, bool hz) { return new KeystoneSceneLayer { Kind = kind, Tag = tag, Colors = c, Offsets = o, Horizontal = hz }; }
+        static KeystoneSceneLayer Rect(double x, double y, double w, double h, string tag, string[] c, double[] o, bool hz)
+        { var l = L("POLY", tag, c, o, hz); l.Pts.AddRange(new[] { x, y, x + w, y, x + w, y + h, x, y + h }); return l; }
+        static double[] O2 = { 0, 1 }, O3 = { 0, 0.55, 1 };
+        // a ridge line y(x) (sum of sines, or "peaky" = ridged |sin|) closed down to the bottom
+        static List<double> RidgeY(double w, double h, double baseY, double amp, int seed, bool peaky, out double step)
+        {   /* fractal ridge: a base wavelength in PIXELS (wide mountains in a 34-px band too), 4 octaves; peaky = a ridged first octave (sharp summits) */
+            var r = new Random(seed); int n = 4; double lam = Math.Max(170, h * 3.2); var mult = new[] { 1.0, 2.13, 4.37, 9.1 }; var amps = new[] { 1.0, 0.45, 0.2, 0.09 };
+            var f = new double[n]; var ph = new double[n]; double norm = 0;
+            for (int k = 0; k < n; k++) { f[k] = mult[k] * (0.85 + 0.3 * r.NextDouble()) / lam; ph[k] = r.NextDouble() * Math.PI * 2; norm += amps[k]; }
+            step = Math.Max(2, Math.Min(w / 400, lam / 30)); var ys = new List<double>();
+            for (double x = 0; x <= w + step; x += step)
+            {
+                double s = 0; for (int k = 0; k < n; k++) { double v = Math.Sin(f[k] * x * Math.PI * 2 + ph[k]); s += amps[k] * (peaky && k == 0 ? 1 - 2 * Math.Abs(Math.Sin(f[k] * x * Math.PI + ph[k])) : v); }
+                s /= norm; ys.Add(baseY * h - amp * h * Math.Max(0, Math.Min(1, 0.5 + 0.6 * s)));
+            }
+            return ys;
+        }
+        // a tree canopy: rounded crowns side by side (|sin| arches), for the forest
+        static KeystoneSceneLayer Canopy(double w, double h, double baseY, double amp, double crown, int seed, string tag, string[] c)
+        {
+            var r = new Random(seed); double ph = r.NextDouble() * 6, ph2 = r.NextDouble() * 6, st = Math.Max(1.5, crown / 10); var l = L("POLY", tag, c, O2, false);
+            for (double x = 0; x <= w + st; x += st) { double xx = Math.Min(w, x); double y = baseY * h - amp * h * (0.62 * Math.Sqrt(Math.Abs(Math.Sin(xx / crown * Math.PI + ph))) + 0.38 * Math.Sqrt(Math.Abs(Math.Sin(xx / (crown * 2.7) * Math.PI + ph2)))); l.Pts.Add(xx); l.Pts.Add(y); }
+            l.Pts.AddRange(new[] { w, h, 0, h }); return l;
+        }
+        static KeystoneSceneLayer Ridge(double w, double h, double baseY, double amp, int seed, bool peaky, string tag, string[] c, double[] o)
+        {
+            double step; var ys = RidgeY(w, h, baseY, amp, seed, peaky, out step); var l = L("POLY", tag, c, o, false);
+            for (int i = 0; i < ys.Count; i++) { l.Pts.Add(Math.Min(w, i * step)); l.Pts.Add(ys[i]); }
+            l.Pts.AddRange(new[] { w, h, 0, h }); return l;
+        }
+        // the snow caps of a ridge: from the ridge line down to the snow line (zero thickness below it)
+        static KeystoneSceneLayer Caps(double w, double h, double baseY, double amp, int seed, double snowY, string[] c)
+        {
+            double step; var ys = RidgeY(w, h, baseY, amp, seed, true, out step); var l = L("POLY", "snow.caps", c, O2, false);
+            var r = new Random(seed + 77);
+            for (int i = 0; i < ys.Count; i++) { l.Pts.Add(Math.Min(w, i * step)); l.Pts.Add(ys[i]); }
+            for (int i = ys.Count - 1; i >= 0; i--) { double cap = Math.Max(0, snowY * h - ys[i]) * (0.55 + 0.25 * r.NextDouble()); l.Pts.Add(Math.Min(w, i * step)); l.Pts.Add(ys[i] + cap); }
+            return l;
+        }
+        static KeystoneSceneLayer Disc(double cx, double cy, double rad, string tag, string[] c, double[] o) { var l = L("DISC", tag, c, o, false); l.Pts.AddRange(new[] { cx, cy, rad }); return l; }
+        static KeystoneSceneLayer Stars(double w, double h, double maxY, int count, int seed, string color)
+        {
+            var l = L("DOTS", "stars", new[] { color }, new double[] { 0 }, false); var r = new Random(seed);
+            for (int i = 0; i < count; i++) { l.Pts.Add(r.NextDouble() * w); l.Pts.Add(r.NextDouble() * maxY * h); l.Pts.Add(0.4 + r.NextDouble() * 0.9); }
+            return l;
+        }
+        // the whole scene for a w × h box (the header band, or the plot for "faint behind"); "" = the accent sky only (+ the winter frost)
+        public static List<KeystoneSceneLayer> Build(string scene, KeystoneSeasonPalette p, double w, double h, int seed)
+        {
+            var o = new List<KeystoneSceneLayer>(); if (p == null || w < 2 || h < 2) return o; var A = (Func<string, double, string>)KeystoneSeasons.Alpha; var M = (Func<string, string, double, string>)KeystoneSeasons.Mix;
+            int sStars = Math.Max(6, (int)(w * h / 2600)); if (sStars > 220) sStars = 220;
+            switch (scene ?? "")
+            {
+                case "MOUNTAINS":
+                {   /* atmospheric perspective: far = the horizon haze, near = almost black */
+                    string hzc = M(p.Sky2, p.Glow, 0.25);
+                    o.Add(Rect(0, 0, w, h, "sky", new[] { A(p.Deep, 1), A(M(p.Sky1, p.Sky2, 0.55), 1), A(hzc, 1) }, O3, false));
+                    o.Add(Disc(w * 0.68, h * 0.80, h * 0.75, "sun.glow", new[] { A(p.Glow, 0.50), A(p.Glow, 0) }, O2));
+                    o.Add(Disc(w * 0.68, h * 0.80, h * 0.14, "sun", new[] { A(p.Glow, 0.95), A(p.Glow, 0.55) }, O2));
+                    o.Add(Ridge(w, h, 0.66, 0.42, seed + 1, true, "ridge.far", new[] { A(M(hzc, p.Deep, 0.35), 0.92), A(M(hzc, p.Deep, 0.5), 0.92) }, O2));
+                    o.Add(Ridge(w, h, 0.84, 0.38, seed + 2, true, "ridge.mid", new[] { A(M(hzc, p.Deep, 0.68), 1), A(M(hzc, p.Deep, 0.8), 1) }, O2));
+                    o.Add(Ridge(w, h, 1.0, 0.28, seed + 3, false, "ridge.near", new[] { A(M(p.Deep, "#000000", 0.35), 1), A(M(p.Deep, "#000000", 0.55), 1) }, O2));
+                    break;
+                }
+                case "WATERFALL":
+                {
+                    o.Add(Rect(0, 0, w, h, "sky", new[] { A(p.Deep, 1), A(p.Sky1, 1), A(M(p.Sky1, p.Sky2, 0.6), 1) }, O3, false));
+                    o.Add(Ridge(w, h, 0.72, 0.30, seed + 4, false, "hills", new[] { A(M(p.Mist, p.Sky1, 0.4), 0.9), A(M(p.Mist, p.Deep, 0.5), 0.9) }, O2));
+                    double gx0 = w * 0.40, gx1 = w * 0.47, top = h * 0.18;
+                    var cl = L("POLY", "cliff.left", new[] { A(M(p.Deep, p.Mist, 0.35), 1), A(p.Deep, 1) }, O2, false);
+                    cl.Pts.AddRange(new[] { 0, h * 0.30, w * 0.18, h * 0.22, w * 0.30, top + h * 0.02, gx0, top, gx0 + w * 0.004, h * 0.72, gx0 - w * 0.01, h, 0, h });
+                    var cr = L("POLY", "cliff.right", new[] { A(M(p.Deep, p.Mist, 0.30), 1), A(p.Deep, 1) }, O2, false);
+                    cr.Pts.AddRange(new[] { gx1, top - h * 0.02, w * 0.58, top + h * 0.05, w * 0.74, h * 0.28, w, h * 0.36, w, h, gx1 + w * 0.01, h, gx1 - w * 0.004, h * 0.74 });
+                    o.Add(cl); o.Add(cr);
+                    o.Add(Rect(gx0, top, gx1 - gx0, h * 0.86 - top, "water", new[] { A("#FFFFFF", 0.80), A(M("#FFFFFF", p.Mist, 0.5), 0.55), A(p.Mist, 0.35) }, O3, false));
+                    var sh = L("LINES", "shimmer", new[] { A("#FFFFFF", 0.55) }, new double[] { 0 }, false); sh.Width = Math.Max(0.8, w / 1400); var r = new Random(seed + 5);
+                    for (int i = 0; i < 9; i++) { double x = gx0 + (gx1 - gx0) * (0.1 + 0.8 * r.NextDouble()), y0 = top + (h * 0.6) * r.NextDouble(); sh.Pts.AddRange(new[] { x, y0, x, Math.Min(h * 0.86, y0 + h * (0.12 + 0.2 * r.NextDouble())) }); }
+                    o.Add(sh);
+                    o.Add(Disc((gx0 + gx1) / 2, h * 0.9, Math.Max(h * 0.32, (gx1 - gx0) * 1.6), "mist", new[] { A("#FFFFFF", 0.38), A("#FFFFFF", 0) }, O2));
+                    var pool = L("POLY", "pool", new[] { A(p.Mist, 0.75), A(M(p.Mist, p.Deep, 0.6), 0.9) }, O2, false); pool.Pts.AddRange(new[] { w * 0.22, h, w * 0.30, h * 0.88, gx0, h * 0.85, gx1, h * 0.85, w * 0.64, h * 0.9, w * 0.72, h });
+                    o.Add(pool);
+                    break;
+                }
+                case "FOREST":
+                {   /* fall woods: hills in the haze, two rows of round crowns in the season's colours, a few bright leaves */
+                    o.Add(Rect(0, 0, w, h, "sky", new[] { A(p.Sky1, 1), A(M(p.Sky1, p.Sky2, 0.55), 1), A(M(p.Sky2, p.Glow, 0.2), 1) }, O3, false));
+                    o.Add(Disc(w * 0.80, h * 0.55, h * 0.7, "haze", new[] { A(p.Glow, 0.35), A(p.Glow, 0) }, O2));
+                    o.Add(Ridge(w, h, 0.62, 0.32, seed + 6, false, "hills", new[] { A(M(p.Sky2, p.Deep, 0.45), 0.9), A(M(p.Sky2, p.Deep, 0.6), 0.9) }, O2));
+                    double crown = Math.Max(9, h * 0.16);
+                    o.Add(Canopy(w, h, 0.80, 0.30, crown * 1.4, seed + 7, "canopy.back", new[] { A(M(p.Accent2, p.Deep, 0.45), 1), A(M(p.Accent2, p.Deep, 0.75), 1) }));
+                    o.Add(Canopy(w, h, 0.95, 0.30, crown, seed + 8, "canopy.front", new[] { A(M(p.Accent, p.Accent2, 0.35), 1), A(M(p.Accent2, p.Deep, 0.6), 1) }));
+                    var lit = L("DOTS", "canopy.light", new[] { A(p.Glow, 0.55) }, new double[] { 0 }, false); var r = new Random(seed + 9);
+                    for (int i = 0; i < Math.Max(6, (int)(w / 45)); i++) { lit.Pts.Add(r.NextDouble() * w); lit.Pts.Add(h * (0.72 + 0.12 * r.NextDouble())); lit.Pts.Add(Math.Max(0.8, crown * 0.12)); }
+                    o.Add(lit);
+                    o.Add(Rect(0, h * 0.95, w, h * 0.05, "ground", new[] { A(M(p.Deep, p.Accent2, 0.2), 1), A(p.Deep, 1) }, O2, false));
+                    var leaves = L("DOTS", "leaves", new[] { A(p.Accent, 0.85) }, new double[] { 0 }, false); var lr = new Random(seed + 10);
+                    for (int i = 0; i < Math.Max(4, (int)(w / 110)); i++) { leaves.Pts.Add(lr.NextDouble() * w); leaves.Pts.Add(h * (0.12 + 0.45 * lr.NextDouble())); leaves.Pts.Add(Math.Max(0.8, Math.Min(3, h * 0.018))); }
+                    o.Add(leaves);
+                    break;
+                }
+                case "OCEAN":
+                {
+                    double hz = h * 0.62;
+                    o.Add(Rect(0, 0, w, hz, "sky", new[] { A(p.Deep, 1), A(M(p.Sky1, p.Accent2, 0.45), 1), A(M(p.Accent2, p.Glow, 0.35), 1) }, O3, false));
+                    o.Add(Disc(w * 0.62, hz, h * 0.95, "sun.glow", new[] { A(p.Glow, 0.55), A(p.Glow, 0) }, O2));
+                    o.Add(Disc(w * 0.62, hz, h * 0.22, "sun", new[] { A(p.Glow, 1), A(p.Accent, 0.9) }, O2));
+                    var isl = Ridge(w, h, 0.64, 0.10, seed + 9, true, "island", new[] { A(M(p.Deep, p.Accent2, 0.15), 1), A(p.Deep, 1) }, O2); o.Add(isl);
+                    o.Add(Rect(0, hz, w, h - hz, "sea", new[] { A(M(p.Mist, p.Accent2, 0.25), 1), A(p.Mist, 1), A(p.Deep, 1) }, O3, false));
+                    var refl = L("LINES", "reflection", new[] { A(p.Glow, 0.7) }, new double[] { 0 }, false); refl.Width = Math.Max(0.8, h * 0.03); var r = new Random(seed + 10);
+                    for (int i = 0; i < 7; i++) { double y = hz + (h - hz) * (0.12 + 0.12 * i), half = h * (0.18 - 0.015 * i) * (0.7 + 0.6 * r.NextDouble()); refl.Pts.AddRange(new[] { w * 0.62 - half, y, w * 0.62 + half, y }); }
+                    o.Add(refl);
+                    var waves = L("LINES", "waves", new[] { A("#FFFFFF", 0.18) }, new double[] { 0 }, false); waves.Width = Math.Max(0.6, h * 0.02);
+                    for (int i = 0; i < Math.Max(6, (int)(w / 120)); i++) { double x = r.NextDouble() * w, y = hz + (h - hz) * (0.2 + 0.75 * r.NextDouble()), len = Math.Min(h * (0.2 + 0.5 * r.NextDouble()), w * 0.05); x = Math.Min(x, w - len); waves.Pts.AddRange(new[] { x, y, x + len, y }); }
+                    o.Add(waves);
+                    break;
+                }
+                case "AURORA":
+                {
+                    o.Add(Rect(0, 0, w, h, "sky", new[] { A(M(p.Deep, "#000000", 0.25), 1), A(p.Deep, 1), A(p.Sky1, 1) }, O3, false));
+                    o.Add(Stars(w, h, 0.85, sStars, seed + 11, A("#FFFFFF", 0.85)));
+                    var r = new Random(seed + 12); string aur1 = p.Season == "" ? "#3DFFC5" : M(p.Accent, "#3DFFC5", 0.45), aur2 = p.Season == "" ? "#7C4DFF" : M(p.Accent2, "#B48CFF", 0.4);
+                    for (int b = 0; b < 3; b++)
+                    {
+                        var rib = L("POLY", "aurora", new[] { A(aur1, 0), A(b == 1 ? aur2 : aur1, 0.42 - 0.08 * b), A(aur2, 0.30), A(aur1, 0) }, new[] { 0, 0.3, 0.7, 1 }, true);
+                        double y0 = h * (0.18 + 0.16 * b), th = h * (0.14 + 0.05 * b), f = 2 + r.NextDouble() * 2.5, ph = r.NextDouble() * 6, st = Math.Max(4, w / 160); var top = new List<double>(); var bot = new List<double>();
+                        for (double x = 0; x <= w + st; x += st) { double xx = Math.Min(w, x), yy = y0 + h * 0.08 * Math.Sin(f * xx / w * Math.PI * 2 + ph); top.Add(xx); top.Add(yy); bot.Add(xx); bot.Add(yy + th * (0.6 + 0.4 * Math.Sin(xx / w * 9 + ph))); }
+                        rib.Pts.AddRange(top); for (int i = bot.Count - 2; i >= 0; i -= 2) { rib.Pts.Add(bot[i]); rib.Pts.Add(bot[i + 1]); }
+                        o.Add(rib);
+                    }
+                    o.Add(Ridge(w, h, 1.0, 0.24, seed + 13, true, "ridge", new[] { A(M(p.Deep, "#000000", 0.3), 1), A(M(p.Deep, "#000000", 0.5), 1) }, O2));
+                    break;
+                }
+                case "SNOWPEAKS":
+                    o.Add(Rect(0, 0, w, h, "sky", new[] { A(p.Sky1, 1), A(M(p.Sky1, p.Sky2, 0.6), 1), A(M(p.Sky2, "#FFFFFF", 0.15), 1) }, O3, false));
+                    o.Add(Stars(w, h, 0.35, Math.Max(4, sStars / 3), seed + 14, A("#FFFFFF", 0.6)));
+                    o.Add(Ridge(w, h, 0.70, 0.55, seed + 15, true, "peaks.far", new[] { A(M(p.Accent2, p.Sky2, 0.55), 0.95), A(M(p.Mist, p.Sky2, 0.4), 0.95) }, O2));
+                    o.Add(Caps(w, h, 0.70, 0.55, seed + 15, 0.38, new[] { A("#FFFFFF", 0.85), A(p.Accent2, 0.6) }));
+                    o.Add(Ridge(w, h, 0.95, 0.50, seed + 16, true, "peaks.near", new[] { A(M(p.Mist, p.Deep, 0.35), 1), A(p.Deep, 1) }, O2));
+                    o.Add(Caps(w, h, 0.95, 0.50, seed + 16, 0.62, new[] { A("#FFFFFF", 0.92), A(M("#FFFFFF", p.Accent, 0.4), 0.75) }));
+                    break;
+                default:   // no scene: the season's accent sky only
+                    o.Add(Rect(0, 0, w, h, "sky", new[] { A(p.Deep, 1), A(M(p.Deep, p.Sky1, 0.7), 1) }, O2, true));
+                    o.Add(Disc(w * 0.5, h * 1.6, Math.Max(w * 0.35, h * 2), "glow", new[] { A(p.Accent, 0.16), A(p.Accent, 0) }, O2));
+                    break;
+            }
+            if (h <= 60 && (scene ?? "") != "")
+            {   /* the header band: a soft scrim behind the title (left) and the quote / buttons (right) so the words stay readable */
+                o.Add(Rect(0, 0, w, h, "scrim", new[] { A(p.Deep, 0.72), A(p.Deep, 0.18), A(p.Deep, 0.12), A(p.Deep, 0.62) }, new[] { 0, 0.26, 0.55, 1 }, true));
+            }
+            if (p.Frost)
+            {   /* ❄ the winter accent: a faint frost along the top + a few crystals */
+                o.Add(Rect(0, 0, w, Math.Max(3, h * 0.42), "frost", new[] { A("#FFFFFF", 0.16), A("#FFFFFF", 0) }, O2, false));
+                var cr = L("DOTS", "frost.crystals", new[] { A("#FFFFFF", 0.55) }, new double[] { 0 }, false); var rr = new Random(seed + 99);
+                for (int i = 0; i < Math.Max(6, (int)(w / 70)); i++) { cr.Pts.Add(rr.NextDouble() * w); cr.Pts.Add(rr.NextDouble() * h * 0.22); cr.Pts.Add(0.5 + rr.NextDouble() * 0.7); }
+                o.Add(cr);
+            }
+            return o;
+        }
+    }
+    // ✨ the header band's particles — kept inside [0, W] × [0, H] (they wrap), at most 150
+    public sealed class KeystoneParticles
+    {
+        public const int Max = 150;
+        public static readonly string[] Kinds = { "SNOW", "RAIN", "LEAVES", "SUN", "STARS", "MIST" };
+        public static string Label(string k) { return k == "SNOW" ? "❄ SNOW" : k == "RAIN" ? "🌧 RAIN" : k == "LEAVES" ? "🍂 FALLING LEAVES" : k == "SUN" ? "☀ SUN RAYS" : k == "STARS" ? "✨ STARS" : k == "MIST" ? "🌫 MIST DRIFT" : "OFF"; }
+        public string Kind = ""; public double W, H, T; public int N; public bool Reduce;
+        public readonly double[] X = new double[Max], Y = new double[Max], Vx = new double[Max], Vy = new double[Max], S = new double[Max], P = new double[Max];
+        Random rnd = new Random(7);
+        public static int CountFor(string kind, double w, bool reduce)
+        {
+            if (string.IsNullOrEmpty(kind) || w <= 0) return 0;
+            int n = kind == "MIST" ? Math.Max(3, (int)(w / 160)) : kind == "SUN" ? 9 : kind == "STARS" ? (int)(w / 22) : kind == "RAIN" ? (int)(w / 15) : kind == "LEAVES" ? (int)(w / 55) : kind == "SNOW" ? (int)(w / 18) : 0;
+            n = Math.Max(0, Math.Min(Max, n)); if (reduce) n = n / 2;
+            return n;
+        }
+        public void Reset(string kind, double w, double h, bool reduce, int seed)
+        {
+            Kind = kind ?? ""; W = Math.Max(1, w); H = Math.Max(1, h); Reduce = reduce; rnd = new Random(seed); T = 0; N = CountFor(Kind, W, reduce);
+            for (int i = 0; i < N; i++) Spawn(i, true);
+        }
+        void Spawn(int i, bool anywhere)
+        {
+            double sp = Reduce ? 0.5 : 1;
+            X[i] = rnd.NextDouble() * W; Y[i] = anywhere ? rnd.NextDouble() * H : -2 - rnd.NextDouble() * 4; P[i] = rnd.NextDouble() * Math.PI * 2;
+            switch (Kind)
+            {
+                case "SNOW": S[i] = 0.7 + rnd.NextDouble() * 1.2; Vy[i] = (5 + rnd.NextDouble() * 9) * sp; Vx[i] = (-3 + rnd.NextDouble() * 6) * sp; break;
+                case "RAIN": S[i] = 4 + rnd.NextDouble() * 5; Vy[i] = (110 + rnd.NextDouble() * 70) * sp; Vx[i] = -18 * sp; break;
+                case "LEAVES": S[i] = 1.6 + rnd.NextDouble() * 1.6; Vy[i] = (6 + rnd.NextDouble() * 8) * sp; Vx[i] = (10 + rnd.NextDouble() * 16) * sp; break;
+                case "SUN": S[i] = 0.6 + rnd.NextDouble() * 0.8; Vy[i] = 0; Vx[i] = 0; P[i] = i * Math.PI * 2 / Math.Max(1, N); X[i] = W * 0.62; Y[i] = H * 0.5; break;
+                case "STARS": S[i] = 0.6 + rnd.NextDouble() * 1.8; Vy[i] = 0; Vx[i] = 0; break;
+                case "MIST": S[i] = H * (0.6 + rnd.NextDouble() * 0.9); Vy[i] = 0; Vx[i] = (4 + rnd.NextDouble() * 6) * sp; Y[i] = H * (0.35 + 0.5 * rnd.NextDouble()); break;
+            }
+            if (!anywhere && Kind == "LEAVES") X[i] = rnd.NextDouble() * W * 0.9;
+        }
+        public void Step(double dt)
+        {
+            if (N == 0 || dt <= 0) return; dt = Math.Min(dt, 0.25); T += dt; double sp = Reduce ? 0.5 : 1;
+            for (int i = 0; i < N; i++)
+            {
+                switch (Kind)
+                {
+                    case "SNOW": X[i] += (Vx[i] + 4 * sp * Math.Sin(T * 0.9 + P[i])) * dt; Y[i] += Vy[i] * dt; break;
+                    case "RAIN": X[i] += Vx[i] * dt; Y[i] += Vy[i] * dt; break;
+                    case "LEAVES": X[i] += (Vx[i] + 8 * sp * Math.Sin(T * 1.3 + P[i])) * dt; Y[i] += (Vy[i] + 5 * sp * Math.Cos(T * 1.7 + P[i])) * dt; break;
+                    case "SUN": P[i] += 0.06 * sp * dt; break;
+                    case "MIST": X[i] += Vx[i] * dt; break;
+                    default: break;   // STARS: still (they twinkle)
+                }
+                if (Kind == "SUN" || Kind == "STARS") continue;
+                if (Y[i] > H + 3) Spawn(i, false);
+                if (X[i] > W + 4) X[i] -= W + 8; else if (X[i] < -4) X[i] += W + 8;
+            }
+        }
+        // 0..1: the stars twinkle, the sun rays breathe, a leaf "tumbles" (its width), the others are steady
+        public double Alpha(int i)
+        {
+            if (Kind == "STARS") return 0.35 + 0.35 * Math.Sin(T * (0.8 + S[i]) + P[i]) + 0.2;
+            if (Kind == "SUN") return 0.07 + 0.04 * Math.Sin(T * 0.7 + i);
+            if (Kind == "SNOW") return 0.55 + 0.25 * (S[i] - 0.7) / 1.2;
+            if (Kind == "RAIN") return 0.35;
+            if (Kind == "MIST") return 0.10 + 0.05 * Math.Sin(T * 0.3 + P[i]);
+            return 0.85;
+        }
+        public double Tumble(int i) { return Math.Abs(Math.Sin(T * 2.1 + P[i])); }
+        public bool Inside(int i) { return X[i] >= -6 && X[i] <= W + 6 && Y[i] >= -12 && Y[i] <= H + 12; }
+    }
+    // the choices per window (● LIVE TRADING and the BACKTEST STUDIO each remember their own)
+    public sealed class KeystoneLookSettings
+    {
+        public static readonly string[] SeasonModes = { "AUTO", "FALL", "WINTER", "SPRING", "SUMMER", "OFF" };
+        public static readonly string[] SceneModes = { "MATCH", "NONE", "MOUNTAINS", "WATERFALL", "FOREST", "OCEAN", "AURORA", "SNOWPEAKS", "PICTURE", "VIDEO" };
+        public static readonly string[] AnimModes = { "OFF", "MATCH", "SNOW", "RAIN", "LEAVES", "SUN", "STARS", "MIST" };
+        public static readonly string[] QuoteModes = { "BOTH", "REMINDERS", "QUOTES", "OFF" };
+        public const double FaintOpacity = 0.05;   // "faint behind the chart": ≤ 6 %, never animated inside the plot
+        // DEFAULTS (13k): the season accent AUTO + the matching static scene in the header band (drawn once, bitmap-cached), NO animation, around the chart, quotes + reminders
+        public string Season = "AUTO", Scene = "MATCH", Anim = "OFF", Place = "AROUND", Quotes = "BOTH", HideDay = "", File = "";
+        public bool Reduce, LowPower;
+        static string Pick(string v, string[] ok, string d) { v = (v ?? "").Trim().ToUpperInvariant(); return ok.Contains(v) ? v : d; }
+        public static KeystoneLookSettings Read(Func<string, string> get)
+        {
+            Func<string, string> g = k => { try { return get(k) ?? ""; } catch { return ""; } };
+            return new KeystoneLookSettings
+            {
+                Season = Pick(g("season"), SeasonModes, "AUTO"), Scene = SceneOk(g("scene")), Anim = Pick(g("anim"), AnimModes, "OFF"),
+                Place = Pick(g("place"), new[] { "AROUND", "FAINT" }, "AROUND"), Quotes = Pick(g("quotes"), QuoteModes, "BOTH"), HideDay = g("hide").Trim(), File = g("file").Trim(),
+                Reduce = g("reduce") == "1", LowPower = g("lowpower") == "1"
+            };
+        }
+        public static string SceneOk(string v)
+        {
+            v = (v ?? "").Trim(); var up = v.ToUpperInvariant();
+            if (up.StartsWith("PHOTO:")) { var ph = KeystoneLookCatalog.Find(v.Substring(6)); return ph != null ? "PHOTO:" + ph.Id : "MATCH"; }
+            return Pick(up, SceneModes, "MATCH");
+        }
+        public KeystoneLookPhoto Photo { get { return Scene.StartsWith("PHOTO:") ? KeystoneLookCatalog.Find(Scene.Substring(6)) : null; } }
+        public Dictionary<string, string> Write()
+        {
+            return new Dictionary<string, string> { { "season", Season }, { "scene", Scene }, { "anim", Anim }, { "place", Place }, { "quotes", Quotes }, { "hide", HideDay ?? "" }, { "file", File ?? "" }, { "reduce", Reduce ? "1" : "0" }, { "lowpower", LowPower ? "1" : "0" } };
+        }
+        public string SeasonNow(DateTime ny) { return Season == "OFF" ? "" : Season == "AUTO" ? KeystoneSeasons.Of(ny) : Season; }
+        public string SceneNow(DateTime ny)
+        {
+            if (Scene == "NONE") return ""; if (Scene == "MATCH") { string s = SeasonNow(ny); return s == "" ? "" : KeystoneSeasons.DefaultScene(s); }
+            return Scene;
+        }
+        public string AnimNow(DateTime ny)
+        {
+            if (Anim == "OFF") return ""; if (Anim == "MATCH") { var ph = Photo; if (ph != null) return ph.Anim; string sc = SceneNow(ny); if (sc == "AURORA") return "STARS"; string s = SeasonNow(ny); return KeystoneSeasons.DefaultAnim(s); }
+            return Anim;
+        }
+        public bool QuotesHiddenOn(DateTime ny) { return HideDay == ny.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); }
+    }
+    // 💬 the header line: one line only — an urgent reminder first, else the season quote (every 3 h) alternating with a gentle reminder
+    public sealed class KeystoneLookInputs
+    {
+        public bool Live, HasAccount, Locked, LockedNt, Funded;
+        public double Room = double.NaN, Dd, Today, DayCap, DayLoss, TargetLeft = double.NaN;
+        public DateTime Ny;
+    }
+    public sealed class KeystoneReminder { public int Pri; public string Key = "", Text = "", Tone = "INFO"; public bool Urgent { get { return Pri <= 4; } } }
+    public static class KeystoneSeasonQuotes
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public static readonly string[] Fall = {
+            "Leaves fall when they're ready — so should your entries.", "Autumn harvests what spring planned. Trade the plan.", "Let the losers drop like leaves; keep the branch.",
+            "Shorter days, smaller size — risk first, always.", "The market changes colour; your rules don't.", "Gather slowly. A season is made of quiet days.",
+            "No setup, no trade — the orchard isn't ripe yet.", "Cut losses early, like pruning before the frost.", "Patience is the warmest coat in a cold tape.",
+            "A red day is one leaf, not the tree.", "Bank the harvest — protect the green before the wind turns.", "Your stop is the fence around the field.",
+            "Slow is smooth, smooth is profitable.", "Every great season starts with a small, safe trade.", "Don't chase the wind; wait for it at your level.",
+            "Consistency compounds like rings in an old tree.", "Fewer trades, better trades.", "The best trade today may be the one you skip.",
+            "Respect the floor; it's the ground you stand on.", "Calm hands, clear levels, honest stops." };
+        public static readonly string[] Winter = {
+            "Cold markets reward warm patience.", "Snow falls one flake at a time — size in one contract at a time.", "On thin ice, trade light.",
+            "Stillness is a position too.", "Long nights, short risk.", "The frost doesn't argue with the sun; don't argue with price.",
+            "Protect the fire: your account is the hearth.", "A clean chart is a fresh snowfield — wait for clear tracks.", "Winter tests discipline; spring pays it.",
+            "Your edge survives the cold if your stop survives the trade.", "Hibernate through the chop.", "One good trade warms the whole day.",
+            "Plan in the quiet, act in the open.", "No revenge trades — the storm passes on its own.", "Ice is beautiful and slippery. So is leverage.",
+            "Breathe, check the floor, then click.", "Small risks, long seasons.", "The quiet market is not your enemy — boredom is.",
+            "Count your levels like stars: the clear ones only.", "End the day flat and sleep like snow." };
+        public static readonly string[] Spring = {
+            "Plant small, let winners grow.", "Fresh season, same rules.", "Growth is patient — so is a good setup.",
+            "Rain makes the garden; keep the drawdown a light rain.", "Water what works, weed what doesn't.", "New buds, new levels — mark them before the open.",
+            "Bloom on your setup, not on noise.", "Every eval passed began with one disciplined day.", "Let the trade breathe; don't dig up the seed to check it.",
+            "Light rain, light size.", "The plan is the trellis — grow along it.", "Fresh start: yesterday's loss is compost.",
+            "Spring storms pass; your stop stays.", "Grow the account, not the ego.", "Clarity first, then the click.",
+            "A green day is grown, not grabbed.", "Take profits like picking flowers — before they wilt.", "Wait for the sun to break the range.",
+            "Small steps up the hill, every day.", "Protect the seedling: your buffer above the floor." };
+        public static readonly string[] Summer = {
+            "Ride the wave you planned, not the one you chased.", "Hot markets, cool head.", "Sunshine on a winner — take some home.",
+            "Tide comes in, tide goes out. Your stop holds the line.", "Even long days end — be flat before the bell.", "Don't swim past the buoy: max contracts are there for a reason.",
+            "Bright candles, clear rules.", "Bank the summer; the fall comes for everyone.", "Heat brings storms — trade the level, not the mood.",
+            "Golden hour: the setup that comes to you.", "Surf the trend, respect the reef.", "A lazy summer day is a fine day not to overtrade.",
+            "Breathe, hydrate, follow the plan.", "The ocean is patient. Be the ocean.", "Profit is a wave; risk is the rock under it.",
+            "Sunset close: lock the green, go home.", "Simple setups shine brightest.", "One clean entry beats ten splashes.",
+            "Let winners run to the target you set.", "Size for the floor, not the dream." };
+        public static string[] For(string season)
+        {
+            switch (season) { case "FALL": return Fall; case "WINTER": return Winter; case "SPRING": return Spring; case "SUMMER": return Summer; default: return Fall.Concat(Winter).Concat(Spring).Concat(Summer).ToArray(); }
+        }
+        // deterministic: the same quote for everyone at the same NY time, a new one every 3 hours
+        public static int Slot(DateTime ny) { return (int)((ny.Date - new DateTime(2020, 1, 1)).TotalDays) * 8 + ny.Hour / 3; }
+        public static string Quote(string season, DateTime ny) { var l = For(season); int s = Slot(ny); return l[((s % l.Length) + l.Length) % l.Length]; }
+        static string U(double v) { return "$" + Math.Round(Math.Abs(v)).ToString("N0", IC); }
+        // the reminders, most important first (read-only values — nothing here acts)
+        public static List<KeystoneReminder> Reminders(KeystoneLookInputs i)
+        {
+            var o = new List<KeystoneReminder>(); if (i == null || !i.Live) return o; var ny = i.Ny;
+            if (i.LockedNt) o.Add(new KeystoneReminder { Pri = 1, Key = "LOCK", Tone = "WARN", Text = "🔒 NinjaTrader has locked this account for today — no entries; come back fresh tomorrow." });
+            else if (i.Locked) o.Add(new KeystoneReminder { Pri = 1, Key = "LOCK", Tone = "WARN", Text = "🔒 LOCKED FOR TODAY — the best trade now is none. See you tomorrow." });
+            if (i.HasAccount && !double.IsNaN(i.Room) && i.Dd > 0 && i.Room < Math.Max(300, 0.25 * i.Dd))
+                o.Add(new KeystoneReminder { Pri = 2, Key = "FLOOR", Tone = "WARN", Text = "⛔ only " + U(Math.Max(0, i.Room)) + " above your floor — size down or stop for today." });
+            if (i.HasAccount && i.DayLoss > 0 && i.Today <= -0.75 * i.DayLoss)
+                o.Add(new KeystoneReminder { Pri = 3, Key = "DAYLOSS", Tone = "WARN", Text = "⚠ −" + U(i.Today) + " of your " + U(i.DayLoss) + " day loss — one more loss and the day is done. Breathe." });
+            bool wk = ny.DayOfWeek != DayOfWeek.Saturday && ny.DayOfWeek != DayOfWeek.Sunday; int hm = ny.Hour * 100 + ny.Minute;
+            if (wk && hm >= 1624 && hm < 1654) { int left = (16 * 60 + 54) - (ny.Hour * 60 + ny.Minute); o.Add(new KeystoneReminder { Pri = 4, Key = "CLOSE", Tone = "CLOSE", Text = "⏰ 16:54 NY in " + left + " min — no new trades now; be flat before the close." }); }
+            else if (ny.DayOfWeek == DayOfWeek.Saturday || (ny.DayOfWeek == DayOfWeek.Sunday && ny.Hour < 18) || (ny.DayOfWeek == DayOfWeek.Friday && hm >= 1700))
+                o.Add(new KeystoneReminder { Pri = 9, Key = "WEEKEND", Tone = "INFO", Text = "🌙 weekend — the market reopens Sunday 18:00 NY. Rest is part of the plan." });
+            else if (wk && hm >= 1654 && hm < 1800) o.Add(new KeystoneReminder { Pri = 9, Key = "CLOSED", Tone = "INFO", Text = "🌙 the session is closed — it reopens at 18:00 NY." });
+            if (i.HasAccount && i.DayCap > 0 && i.Today >= 0.75 * i.DayCap)
+                o.Add(new KeystoneReminder { Pri = 5, Key = "CAP", Tone = "GOOD", Text = "💰 +" + U(i.Today) + " of your +" + U(i.DayCap) + " day cap — protect it; the day is already good." });
+            else if (i.HasAccount && i.Today >= 100)
+                o.Add(new KeystoneReminder { Pri = 6, Key = "GREEN", Tone = "GOOD", Text = "💚 +" + U(i.Today) + " today — protect the green day." });
+            if (i.HasAccount && !i.Funded && !double.IsNaN(i.TargetLeft) && i.TargetLeft > 0)
+                o.Add(new KeystoneReminder { Pri = 7, Key = "TARGET", Tone = "INFO", Text = "🎯 " + U(i.TargetLeft) + " to the evaluation target — no rush, the rules decide." });
+            if (i.HasAccount && !double.IsNaN(i.Room) && i.Dd > 0 && !(i.Room < Math.Max(300, 0.25 * i.Dd)))
+                o.Add(new KeystoneReminder { Pri = 8, Key = "BUFFER", Tone = "INFO", Text = "🛡 " + U(i.Room) + " above your floor — keep it that way." });
+            return o.OrderBy(x => x.Pri).ToList();
+        }
+        // ONE line: mode BOTH / REMINDERS / QUOTES / OFF • quotesHidden = ✕ hidden for today (reminders keep showing). Returns (text, tone) — "" = nothing
+        public static Tuple<string, string> Line(string mode, string season, KeystoneLookInputs i, bool quotesHidden)
+        {
+            mode = mode ?? "BOTH"; if (mode == "OFF") return Tuple.Create("", "");
+            var rem = mode == "QUOTES" ? new List<KeystoneReminder>() : Reminders(i); var ny = i != null ? i.Ny : DateTime.Now;
+            var urgent = rem.FirstOrDefault(x => x.Urgent); if (urgent != null) return Tuple.Create(urgent.Text, urgent.Tone);
+            bool q = mode != "REMINDERS" && !quotesHidden; string quote = q ? KeystoneSeasons.Icon(season) + " " + Quote(season, ny) : "";
+            var info = rem.Where(x => !x.Urgent).ToList();
+            if (info.Count == 0) return Tuple.Create(quote, q ? "QUOTE" : "");
+            if (!q) { var r0 = info[((ny.Minute * 60 + ny.Second) / 20) % info.Count]; return Tuple.Create(r0.Text, r0.Tone); }
+            int slot = (ny.Minute * 60 + ny.Second) / 20;   // every 20 s: quote, quote, reminder …
+            if (slot % 3 != 2) return Tuple.Create(quote, "QUOTE");
+            var r = info[(slot / 3) % info.Count]; return Tuple.Create(r.Text, r.Tone);
+        }
+    }
+    // 📷 MY PICTURE / 🎞 MY VIDEO: the user's own files (Documents\NinjaTrader 8\KeyStone\Scenes\ or picked from disk) — nothing is shipped or downloaded
+    public static class KeystoneLookFiles
+    {
+        public static readonly string[] PictureExt = { ".jpg", ".jpeg", ".png", ".bmp" }, VideoExt = { ".mp4", ".wmv" };
+        public static string KindOf(string path)
+        {
+            string e = (Path.GetExtension(path ?? "") ?? "").ToLowerInvariant();
+            return PictureExt.Contains(e) ? "PICTURE" : VideoExt.Contains(e) ? "VIDEO" : "";
+        }
+        public static List<string> List(string dir)
+        {
+            var o = new List<string>();
+            try { if (Directory.Exists(dir)) o.AddRange(Directory.GetFiles(dir).Where(f => KindOf(f) != "").OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)); } catch { }
+            return o;
+        }
+        // a usable file, else the one-line note why the scene falls back to none
+        public static string Problem(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return "no file chosen";
+            if (KindOf(path) == "") return "not a picture (jpg / png / bmp) or a video (mp4 / wmv): " + Path.GetFileName(path);
+            try { if (!File.Exists(path)) return "the file is gone: " + Path.GetFileName(path); var fi = new FileInfo(path); if (fi.Length == 0) return "the file is empty: " + fi.Name; using (var s = File.OpenRead(path)) { } } catch (Exception ex) { return "cannot read " + Path.GetFileName(path) + " (" + ex.GetType().Name + ")"; }
+            return "";
+        }
+        // the decode width for a picture shown w px wide (never the full camera resolution)
+        public static int DecodeWidth(double displayW) { return (int)Math.Max(64, Math.Min(3840, Math.Ceiling(displayW <= 0 ? 1920 : displayW))); }
+    }
+    /* 📷 13k PHOTO TEMPLATES (user: "pick real pictures that fit the charts"): free-licence photos (Unsplash License / Pexels License — free to use, attribution
+       is a courtesy: the credit is in the tooltip + a small corner line). KeyStone ships ONLY these URLs: a photo is downloaded ONCE, when the user clicks its
+       template (background thread, HTTPS to the two image hosts only, 25 s timeout, 3 MB cap), into Documents\NinjaTrader 8\KeyStone\Scenes\; offline / a
+       failure = a one-line note + the drawn scene of the same mood. Never a network call unless a photo template is clicked. Each template = the photo + its
+       accent palette + a matching chart template (the user's existing templates; ↺ BACK restores) + an optional animation that fits. */
+    public sealed class KeystoneLookPhoto
+    {
+        public string Id, Name, Url, Page, Credit, Licence, Fallback, Anim = "", ChartTheme, Accent, Accent2, Deep, Ink, Mood;
+        public double BandY = 0.5;   // where the header band's slice of the photo sits (0 = top, 1 = bottom)
+        public KeystoneSeasonPalette Palette() { var b = KeystoneSeasons.Palette(""); return new KeystoneSeasonPalette { Season = "PHOTO", Accent = Accent, Accent2 = Accent2, Deep = Deep, Sky1 = KeystoneSeasons.Mix(Deep, Accent2, 0.15), Sky2 = KeystoneSeasons.Mix(Deep, Accent, 0.35), Glow = KeystoneSeasons.Mix(Accent, "#FFFFFF", 0.3), Ink = Ink, Mist = KeystoneSeasons.Mix(Deep, Accent2, 0.4), Frost = false }; }
+    }
+    public static class KeystoneLookCatalog
+    {
+        public const long MaxBytes = 3000000; public const int TimeoutMs = 25000;
+        public static readonly string[] Hosts = { "images.unsplash.com", "images.pexels.com" };
+        static KeystoneLookPhoto U(string id, string cdn, string name, string mood, string fb, string anim, string theme, string ac, string ac2, string deep, string ink, double bandY, int w, int q)
+        {
+            return new KeystoneLookPhoto { Id = id, Name = name, Mood = mood, Url = "https://images.unsplash.com/photo-" + cdn + "?w=" + w + "&h=" + (w * 9 / 16) + "&fit=crop&q=" + q + "&fm=jpg", Page = "https://unsplash.com", Credit = "Photo: Unsplash (photo-" + cdn + ") — Unsplash License, free to use", Licence = "Unsplash License", Fallback = fb, Anim = anim, ChartTheme = theme, Accent = ac, Accent2 = ac2, Deep = deep, Ink = ink, BandY = bandY };
+        }
+        static KeystoneLookPhoto P(string id, int px, string name, string mood, string fb, string anim, string theme, string ac, string ac2, string deep, string ink, double bandY)
+        {
+            return new KeystoneLookPhoto { Id = id, Name = name, Mood = mood, Url = "https://images.pexels.com/photos/" + px + "/pexels-photo-" + px + ".jpeg?auto=compress&cs=tinysrgb&w=1600&h=900&fit=crop", Page = "https://www.pexels.com/photo/" + px + "/", Credit = "Photo: Pexels — pexels.com/photo/" + px + " — Pexels License, free to use", Licence = "Pexels License", Fallback = fb, Anim = anim, ChartTheme = theme, Accent = ac, Accent2 = ac2, Deep = deep, Ink = ink, BandY = bandY };
+        }
+        public static readonly KeystoneLookPhoto[] Photos =
+        {
+            U("ALPINE", "1506905925346-21bda4d32df4", "📷 Alpine Dusk", "peaks above a sea of clouds at dusk", "MOUNTAINS", "", "NORDIC FROST", "#F2A65A", "#9DB7E0", "#141A2A", "#F1E4D6", 0.30, 1920, 55),
+            P("WATERFALL", 2387873, "📷 Waterfall Mist", "Skógafoss in the mist, Iceland", "WATERFALL", "MIST", "OCEAN DEEP", "#9FD8E8", "#C46B4A", "#10161C", "#E3EEF2", 0.55),
+            U("FALLFOREST", "1507371341162-763b5e419408", "📷 Autumn Lake", "an autumn forest mirrored in a lake", "FOREST", "LEAVES", "WARM DUSK", "#F0A23A", "#C2502C", "#1E140C", "#F6E2C4", 0.52, 1280, 50),
+            U("SNOWNIGHT", "1519681393784-d120267933ba", "📷 Snowy Peaks • Milky Way", "snowy mountains under the Milky Way", "SNOWPEAKS", "SNOW", "MIDNIGHT VELVET", "#B9D4F5", "#C79BE0", "#0B1226", "#E2ECFA", 0.72, 1920, 50),
+            U("OCEAN", "1475924156734-496f6cac6ec1", "📷 Ocean Dusk", "a violet sunset over a rocky shore", "OCEAN", "", "TWILIGHT SOFT", "#F4B26C", "#9C8BD8", "#191A30", "#F2E6EE", 0.62, 1920, 55),
+            U("DESERT", "1542401886-65d6c61db217", "📷 Desert Dunes", "dunes in a warm haze", "MOUNTAINS", "", "MIDNIGHT EMBER", "#E8A15E", "#B5653A", "#24160E", "#F7E6D2", 0.66, 1920, 55),
+            U("AURORA", "1531366936337-7c912a4589a7", "📷 Aurora Night", "the aurora over a snowy valley", "AURORA", "STARS", "VELVET ICE", "#5EF0B4", "#B07CF0", "#0A1022", "#E0F4EE", 0.45, 1920, 50),
+            U("RAINCITY", "1519692933481-e162a57d6721", "📷 Rainy City Night", "an umbrella in the evening rain, city lights", "MOUNTAINS", "RAIN", "MIDNIGHT EMBER", "#F0A050", "#5FA8D8", "#14151A", "#F2E8DC", 0.35, 1920, 55),
+        };
+        public static KeystoneLookPhoto Find(string id) { return Photos.FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase)); }
+        public static string CacheFile(string dir, KeystoneLookPhoto p) { return p == null ? "" : Path.Combine(dir ?? "", "keystone-" + p.Id.ToLowerInvariant() + ".jpg"); }
+        // only HTTPS to the two image hosts (the catalog's own URLs)
+        public static bool UrlOk(string url)
+        {
+            Uri u; if (!Uri.TryCreate(url ?? "", UriKind.Absolute, out u)) return false;
+            return u.Scheme == "https" && Hosts.Contains(u.Host.ToLowerInvariant());
+        }
+        // a downloaded file is kept only if it is a real JPEG / PNG of a sane size
+        public static string CheckBytes(byte[] b)
+        {
+            if (b == null || b.Length < 2000) return "the download was empty";
+            if (b.Length > MaxBytes) return "the download was larger than 3 MB";
+            bool jpg = b[0] == 0xFF && b[1] == 0xD8, png = b.Length > 8 && b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47;
+            return jpg || png ? "" : "the download was not a picture";
+        }
+        // the header band's slice of a 16:9 photo: (top, height) relative, centred on BandY
+        public static double[] BandSlice(double bandY, double bandW, double bandH, double imgAspect)
+        {
+            if (bandW <= 0 || bandH <= 0 || imgAspect <= 0) return new[] { 0.0, 1.0 };
+            double vh = Math.Min(1, imgAspect * bandH / bandW); double top = Math.Max(0, Math.Min(1 - vh, bandY - vh / 2));
+            return new[] { top, vh };
+        }
+    }
 }
 
 namespace NinjaTrader.NinjaScript.Indicators
@@ -25934,7 +26447,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly string KeystoneBuildShort = KeystoneBuild.Split('•')[0].Trim();   // always the newest label (it was a separate, forgotten constant)
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
         private static string flatAlertedKey = "";   // the firm close-time alarm sounds once a day per account
-        private const string KeystoneBuild = "BUILD 2026-11-13j • 🖐 drag fixed: moving an existing stop / take profit never hides the window — a click opened a self-closing topmost price window • 🧼 SIMPLE really hides every order-flow layer (event pills, big prints, trapped boxes, marks) whatever the chips, the ⚙ list greys them, no more □ • BUILD 2026-11-13i • 🫥 the position label + ⚠ NO STOP SET show only on hover, on the right next to + SL / + TP • BUILD 2026-11-13h • ✋ always something to grab: + SL / + TP pills next to the position, off-screen stop / target pinned at the edge, a closing order says \"closes your SHORT 1 (+$…)\", entry-order pills next to their order • BUILD 2026-11-13g • ⏳ stop orders get the same draggable SL / TP as limits • ✕ on every bracket leg to cancel it (the stop asks first) • no more doubled pills • a new limit / stop order starts WITHOUT a stop / target (only the SL / TP you set for it, then the fields clear) • BUILD 2026-11-13f • 🧹 the order column fits again: ▸ NEXT LEVELS starts folded (one click opens it), the quick contract buttons 1 2 3 5 10 show their numbers • BUILD 2026-11-13e • ✋ line dragging: what you hover is what you grab (label first, else the nearest line), the dragged line keeps its identity, PROFIT STOP vs TAKE PROFIT labelled apart • BUILD 2026-11-13d • 🗺 NEXT LEVELS: the nearest FVGs (all timeframes, yesterday's too), swings, prior-day / overnight / today H-L, VWAP, POC / VA, zones — with how often each is reached first from your history; in a trade told from your side • ➕ add-to-winner / add-to-loser suggestions with contracts, average, break-even and the floor check (text only) • ● BIG PRINTS: a pale circle per closed-minute print that stays (faded by age, behind the candles, NEW on the latest, click = what happened + IF / THEN), its own chip • 👁 the overlay chips moved off the chart into the header (⚙ OVERLAYS ▾ when narrow) • the in-trade box follows adds: the current size + average • BUILD 2026-11-13c • ❓ every chip, tab and button explains itself on hover (what • why • how to use) • 🎓 ORDERFLOW: HOW TO USE + 👉 what to do now on every event • ⛔ warns when your stop is beyond the account's floor • 📊 honest events: every event shows its measured % (grey \"no edge\" / learning under 30, never \"SELL pressure\" without an edge), measured with vs against the session trend, counter-trend events in a strong trend flagged • BUILD 2026-11-13b • 🩹 live chart gaps: missing minutes refilled from the live feed's own NinjaTrader bars, gaps found up to the last bar (no time-zone miss), asked again every minute • BUILD 2026-11-13a • ⚡ speed: the order-flow engine runs only when something needs it (ORDERFLOW tab open / a chart layer on), off the UI thread, incremental; ⚡ ORDER FLOW ENGINE AUTO / OFF • 🎯 REVERSAL SCORE layer (optional): reversal arrows ≥ 75 % confluence, coloured by strength, click = the confluence checklist • 📊 ORDER FLOW is OFF by default (one ☐ / ☑ switch per window: the tab + the engine; the chart's 📊 OF chip for the reversal arrows + ⭐ OF CONFIRM) • BUILD 2026-11-12z • ⭐ your candle setups + order flow: an OF ✔ / ✖ badge on the FVG / engulfing / aggression setups (absorbed / pushing at the zone), IF / THEN lines for every event level (back and holds / breaks), FVG alone vs FVG + OF stats • BUILD 2026-11-12y • 📈 the CHART = your candlesticks only (no order flow drawn by default — decision line, toasts, setup lines, zones, events, battle map all OFF there; the order-flow engine runs only for the 📊 ORDERFLOW tab or a chip you switch on) • 🧼 SIMPLE ORDERFLOW view by default (candles + one decision line + the setup's lines + ≤ 2 zone outlines; everything else in the dock: NOW / STORY / FLOW / PROFILE / EVENTS), 🔬 DETAILED restores your overlays • no more \"stop 0.00\" • 📚 DOM for beginners (a ladder around the price, walls / pulled / 🧊 refills, who is waiting, ❓ what is the DOM) • 🎯 event words never on the candles (a tiny ring at the print, the words in the right column), every event \"for your LONG 2 @ …\" (supports HOLD / against you → TIGHTEN), opposite events = ONE ⚖ chop line, the in-trade box with the stop / target in pts and $ • 🛠 the replay's ⤓ GET TICKS banner is clickable again (one click = this day's real ticks downloaded, saved to the TICK LIBRARY and replayed; a plain message when NinjaTrader has none) + 📥 TICK LIBRARY ⤓ DOWNLOAD EVERYTHING AVAILABLE (MNQ + MGC, today back until 3 empty days, saved days skipped, ■ CANCEL) • BUILD 2026-11-12x • 🏃 SWING setups beside ⚡ SCALP: zone retests / 5-min confirmations, stop beyond the structure, take profit at the next major level ≥ 2 R (named), sized from the wider stop, proven separately per style • ⚡ longer scalps: TP 10–20 pts MNQ / 2–4 MGC, no room = no scalp, pts + $ on every card • ⚖ STYLE SCALP / SWING / BOTH (two rows, one TAKE each) • 🧭 5-STEP GUIDE in the decision bar (① LOCATION ② BATTLE ③ FAILURE ④ CLOSE ⑤ EXECUTE), one mark language (shape = what, colour = for whom, bright = the current step; the CHART shows ≤ 3), the SETUP chip opens WHY when there is no setup • 🛡 a stable in-trade suggestion: the plan decides (GET OUT only on a closed-candle break of its level or 90 s of flow + delta + event against), DRAWDOWN IS NORMAL inside the plan, 45 / 90 / 30 s hysteresis, a swing doubles it • 🚥 DECISION BAR on the chart = the NOW verdict (⚡ cyan / 🏃 violet / ⭐ STRONG gold / 🧪 grey / ⚠ orange / ⛔ red, gentle pulse) • 🔔 event toasts with \"→ what it means for you\" + the measured % (n ≥ 20) + the event journal • 🪤 failed zone → FLIP setup, failed big prints louder • 👀 WHAT'S HAPPENING NOW + 🎓 BEGINNER words • 💵 SETUPS table with $ P/L + totals • 📊 TOTALS — contracts • ⚔ battle map labelled • 🧭 \"SELLERS fading → BUYERS +48\" + in-trade fixes (a held compass = changing, no GET OUT in the first minute, PROTECT THE PROFIT) • BUILD 2026-11-12w • 🧹 calmer marks: the same signal within 5 candles = ONE small icon ×n (last 30 min, max 5, never stacked), watch zones = the 2 nearest per side, merged, a short ▲ BUY ZONE / ▼ SELL ZONE label at the right edge + a plain click explanation, big prints = the 8 biggest of 15 min • BUILD 2026-11-12v • 📊 ORDERFLOW calm: volume profile + delta / contracts row on the chart, one stable FLOW COMPASS (hysteresis), only confirmed signals with R:R ≥ 1 in the compass direction, TEAL / CORAL palette, live flow + tape in the dock • dock tabs 🧭 NOW (one verdict + the setup) / 🔍 WHY / 📖 STORY / 📒 SETUPS / 📊 ANALYZE / 🧠 LEARN / ⚡ FLOW / 📚 BOOK / 📈 STATS / 🎓 GUIDE • 🧘 PATIENT (proven setups only, cool-down) + ⚡ SCALP first + 📜 history replay • 👀 ZONE RETEST (mark → wait → confirm) • 🪤 trapped / ⚡ big prints / 🧱 events • one setup at a time (#id, fixed levels, planned $, first-touch ✔ / ✖) • 🏦 account fit + best account • 🎯 in-trade confidence + battle map • 👁 layer bar (H = clean) • 📦 EXPORT FOR CLAUDE • BUILD 2026-11-12u • 🛡 the signal card TAKE sends EXACTLY its contracts (frozen when the card appears, named on the button + the question, min stop MNQ 5 / MGC 1.5 pts, cap 10) • 💡 SIGNAL stop / target violet on the chart vs MY TP / MY SL • the details box on top • BUILD 2026-11-12t • 🧾 EXECUTIONS rebuilt: per-account selector, every fill / partial / add, iterations flat-to-flat with legs + the account snapshot (balance, floor, peak, buffer), fees from NinjaTrader's executions only • BUILD 2026-11-11s • 📥 TICK LIBRARY (download / keep / load real ticks), order-flow source badges (never from candles), the all-in-one ORDERFLOW desk, menu fix, ▦ grid lines on / off, 💡 3 SETUPS + OVERNIGHT preset • BUILD 2026-11-11r • 💡 BOLD / SMALL 1-A-DAY presets (one trade per account per day, ~1:1 wide bracket), Lucid payout locks the floor, payout hold, bracket re-priced for every trade • BUILD 2026-11-11q • funded trailing peak = the firm's liquidation value (closing commission), ✎ SYNC with Tradovate, EXECUTIONS fees from NinjaTrader • BUILD 2026-11-11p • 🎯 3 SETUPS: indicator layer, studio 3-SETUP ROTATION drawer, practice tickets, ROTATE guided source • BUILD 2026-11-11o • 🎯 3-SETUP ROTATION engine + study (FVG 50 % / aggression break / 123 engulfing, 30-account rotation, Lucid Flex 50K) • BUILD 2026-11-11n • LIVE TRADING: the account boxes fixed in their own row above the chart (bigger, never move / hide, kept in FULL CHART) + the account in words (firm • FUNDED / EVALUATION • trailing drawdown) + the bottom tab bar shrinks to fit • BUILD 2026-11-11m • entry marker: a small tick beside the candle (no big arrow / glow over the entry candle) • BUILD 2026-11-11l • 🧮 header TILES (balance, open, peak + time, floor $ + price + ▲ flash, room + drain bar, to lock / target + progress, the position) — each number once · 🆓 MANUAL practice (no rules) · 📊 ATTEMPTS tracker (summary, every attempt, its trades, ▶ jump, export, clear) · 🏷 gutter labels include the position / TP / SL (PEAK near the entry rides on it) · 🧠 ENTRY ANALYZER + 🧠 ENTRY SCORE (walk-forward, calibrated, says when there is no edge) • BUILD 2026-11-11k • 🔄 ROTATION SIM in the Backtest Studio (non-stop TP / SL brackets to the TPT lock or the blow: B / S patterns or rules, real ticks or the minute path with the reliability flag, ONE account + replay with FLOOR / PEAK / LOCK, 👥 POOL, 📊 ANALYZER + the no-edge maths, 🏆 FIND OPTIMAL checked on both halves, 💾 runs saved / reopened / compared) · 🖥 the chart first (drawers overlay it, one practice strip, the trailing numbers in the order column, FLOOR / LOCK / PEAK only, gutter labels never overlap) · 🔁 AUTO NEW ATTEMPT after a pass / lock / blow (on) · 📚 trailing-drawdown presets from the firm book + ＋ SAVE AS PRESET · 📼 LIVE DEMO history (saved + NinjaTrader, 5 / 30 / 90 / 365 days) • BUILD 2026-11-11j • ● LIVE DEMO in the Backtest Studio (real-time data, simulated fills, full prop practice) · several studios open at once · 🎯 PROP PRACTICE button in LIVE TRADING · 📐 the trailing-drawdown view (solid FLOOR / dotted PEAK / LOCK lines, the red room band, ▲ floor moved, the big panel: room $ + pts, peak, given back, to lock, balance) · 🎯 LOCK RACE preset (MNQ 5 … 60, 10 by default @ 9:30 with the 60-min trend; TP $2,000 / $1,000, SL floor / $1,000 / $500 / $250, BE at 75 %, the next trade aims for what is missing) • BUILD 2026-11-11i • 🔒 NinjaTrader Lockout recognised (entries refused, autopilot blocked) · 🎯 REVERSAL FVG scanner (signals only, ★ high volume, forward log) · 🎮 Sim101 listed · 🎯 live Sim101 prop practice · JJ removed • BUILD 2026-11-11h • TP / SL drag: the entry fades and can't be grabbed while dragging, a live points / $ label on the line, the order changes only on release • BUILD 2026-11-11g • 🤖 LIVE AUTOPILOT: GUIDED (flashing bracket, one press) for every firm, AUTO for Lucid / Tradeify only after ARM + typed START, through the armed links + limits • BUILD 2026-11-11f • defaults: ALL AT ONCE 2:00 + SPRINT 0 · 👥 owners (me / wife, 5 per firm each) · time presets · JJ strategy (practice) • BUILD 2026-11-11e • ● LIVE: only your active accounts (TPT eval / funded detected right, real balances, nicknames), groups + plan per group, CONFIRM no longer freezes • ▢ every window opens maximized (restore = 90 % of the screen), larger readable question dialogs • BUILD 2026-11-11d • 🔁 continuous runs until END by default (new eval → funded → payouts over and over), month by month, sprint badges • BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
+        private const string KeystoneBuild = "BUILD 2026-11-13k • 🍂 SEASONS + 🖼 SCENES (optional): seasonal accents, quotes & reminders, procedural landscapes, snow / rain / leaves / sun around the chart — light, never over the candles • 📷 real-photo templates + the one-click 🎨 LOOK gallery (✓ KEEP / ↺ BACK) • BUILD 2026-11-13j • 🖐 drag fixed: moving an existing stop / take profit never hides the window — a click opened a self-closing topmost price window • 🧼 SIMPLE really hides every order-flow layer (event pills, big prints, trapped boxes, marks) whatever the chips, the ⚙ list greys them, no more □ • BUILD 2026-11-13i • 🫥 the position label + ⚠ NO STOP SET show only on hover, on the right next to + SL / + TP • BUILD 2026-11-13h • ✋ always something to grab: + SL / + TP pills next to the position, off-screen stop / target pinned at the edge, a closing order says \"closes your SHORT 1 (+$…)\", entry-order pills next to their order • BUILD 2026-11-13g • ⏳ stop orders get the same draggable SL / TP as limits • ✕ on every bracket leg to cancel it (the stop asks first) • no more doubled pills • a new limit / stop order starts WITHOUT a stop / target (only the SL / TP you set for it, then the fields clear) • BUILD 2026-11-13f • 🧹 the order column fits again: ▸ NEXT LEVELS starts folded (one click opens it), the quick contract buttons 1 2 3 5 10 show their numbers • BUILD 2026-11-13e • ✋ line dragging: what you hover is what you grab (label first, else the nearest line), the dragged line keeps its identity, PROFIT STOP vs TAKE PROFIT labelled apart • BUILD 2026-11-13d • 🗺 NEXT LEVELS: the nearest FVGs (all timeframes, yesterday's too), swings, prior-day / overnight / today H-L, VWAP, POC / VA, zones — with how often each is reached first from your history; in a trade told from your side • ➕ add-to-winner / add-to-loser suggestions with contracts, average, break-even and the floor check (text only) • ● BIG PRINTS: a pale circle per closed-minute print that stays (faded by age, behind the candles, NEW on the latest, click = what happened + IF / THEN), its own chip • 👁 the overlay chips moved off the chart into the header (⚙ OVERLAYS ▾ when narrow) • the in-trade box follows adds: the current size + average • BUILD 2026-11-13c • ❓ every chip, tab and button explains itself on hover (what • why • how to use) • 🎓 ORDERFLOW: HOW TO USE + 👉 what to do now on every event • ⛔ warns when your stop is beyond the account's floor • 📊 honest events: every event shows its measured % (grey \"no edge\" / learning under 30, never \"SELL pressure\" without an edge), measured with vs against the session trend, counter-trend events in a strong trend flagged • BUILD 2026-11-13b • 🩹 live chart gaps: missing minutes refilled from the live feed's own NinjaTrader bars, gaps found up to the last bar (no time-zone miss), asked again every minute • BUILD 2026-11-13a • ⚡ speed: the order-flow engine runs only when something needs it (ORDERFLOW tab open / a chart layer on), off the UI thread, incremental; ⚡ ORDER FLOW ENGINE AUTO / OFF • 🎯 REVERSAL SCORE layer (optional): reversal arrows ≥ 75 % confluence, coloured by strength, click = the confluence checklist • 📊 ORDER FLOW is OFF by default (one ☐ / ☑ switch per window: the tab + the engine; the chart's 📊 OF chip for the reversal arrows + ⭐ OF CONFIRM) • BUILD 2026-11-12z • ⭐ your candle setups + order flow: an OF ✔ / ✖ badge on the FVG / engulfing / aggression setups (absorbed / pushing at the zone), IF / THEN lines for every event level (back and holds / breaks), FVG alone vs FVG + OF stats • BUILD 2026-11-12y • 📈 the CHART = your candlesticks only (no order flow drawn by default — decision line, toasts, setup lines, zones, events, battle map all OFF there; the order-flow engine runs only for the 📊 ORDERFLOW tab or a chip you switch on) • 🧼 SIMPLE ORDERFLOW view by default (candles + one decision line + the setup's lines + ≤ 2 zone outlines; everything else in the dock: NOW / STORY / FLOW / PROFILE / EVENTS), 🔬 DETAILED restores your overlays • no more \"stop 0.00\" • 📚 DOM for beginners (a ladder around the price, walls / pulled / 🧊 refills, who is waiting, ❓ what is the DOM) • 🎯 event words never on the candles (a tiny ring at the print, the words in the right column), every event \"for your LONG 2 @ …\" (supports HOLD / against you → TIGHTEN), opposite events = ONE ⚖ chop line, the in-trade box with the stop / target in pts and $ • 🛠 the replay's ⤓ GET TICKS banner is clickable again (one click = this day's real ticks downloaded, saved to the TICK LIBRARY and replayed; a plain message when NinjaTrader has none) + 📥 TICK LIBRARY ⤓ DOWNLOAD EVERYTHING AVAILABLE (MNQ + MGC, today back until 3 empty days, saved days skipped, ■ CANCEL) • BUILD 2026-11-12x • 🏃 SWING setups beside ⚡ SCALP: zone retests / 5-min confirmations, stop beyond the structure, take profit at the next major level ≥ 2 R (named), sized from the wider stop, proven separately per style • ⚡ longer scalps: TP 10–20 pts MNQ / 2–4 MGC, no room = no scalp, pts + $ on every card • ⚖ STYLE SCALP / SWING / BOTH (two rows, one TAKE each) • 🧭 5-STEP GUIDE in the decision bar (① LOCATION ② BATTLE ③ FAILURE ④ CLOSE ⑤ EXECUTE), one mark language (shape = what, colour = for whom, bright = the current step; the CHART shows ≤ 3), the SETUP chip opens WHY when there is no setup • 🛡 a stable in-trade suggestion: the plan decides (GET OUT only on a closed-candle break of its level or 90 s of flow + delta + event against), DRAWDOWN IS NORMAL inside the plan, 45 / 90 / 30 s hysteresis, a swing doubles it • 🚥 DECISION BAR on the chart = the NOW verdict (⚡ cyan / 🏃 violet / ⭐ STRONG gold / 🧪 grey / ⚠ orange / ⛔ red, gentle pulse) • 🔔 event toasts with \"→ what it means for you\" + the measured % (n ≥ 20) + the event journal • 🪤 failed zone → FLIP setup, failed big prints louder • 👀 WHAT'S HAPPENING NOW + 🎓 BEGINNER words • 💵 SETUPS table with $ P/L + totals • 📊 TOTALS — contracts • ⚔ battle map labelled • 🧭 \"SELLERS fading → BUYERS +48\" + in-trade fixes (a held compass = changing, no GET OUT in the first minute, PROTECT THE PROFIT) • BUILD 2026-11-12w • 🧹 calmer marks: the same signal within 5 candles = ONE small icon ×n (last 30 min, max 5, never stacked), watch zones = the 2 nearest per side, merged, a short ▲ BUY ZONE / ▼ SELL ZONE label at the right edge + a plain click explanation, big prints = the 8 biggest of 15 min • BUILD 2026-11-12v • 📊 ORDERFLOW calm: volume profile + delta / contracts row on the chart, one stable FLOW COMPASS (hysteresis), only confirmed signals with R:R ≥ 1 in the compass direction, TEAL / CORAL palette, live flow + tape in the dock • dock tabs 🧭 NOW (one verdict + the setup) / 🔍 WHY / 📖 STORY / 📒 SETUPS / 📊 ANALYZE / 🧠 LEARN / ⚡ FLOW / 📚 BOOK / 📈 STATS / 🎓 GUIDE • 🧘 PATIENT (proven setups only, cool-down) + ⚡ SCALP first + 📜 history replay • 👀 ZONE RETEST (mark → wait → confirm) • 🪤 trapped / ⚡ big prints / 🧱 events • one setup at a time (#id, fixed levels, planned $, first-touch ✔ / ✖) • 🏦 account fit + best account • 🎯 in-trade confidence + battle map • 👁 layer bar (H = clean) • 📦 EXPORT FOR CLAUDE • BUILD 2026-11-12u • 🛡 the signal card TAKE sends EXACTLY its contracts (frozen when the card appears, named on the button + the question, min stop MNQ 5 / MGC 1.5 pts, cap 10) • 💡 SIGNAL stop / target violet on the chart vs MY TP / MY SL • the details box on top • BUILD 2026-11-12t • 🧾 EXECUTIONS rebuilt: per-account selector, every fill / partial / add, iterations flat-to-flat with legs + the account snapshot (balance, floor, peak, buffer), fees from NinjaTrader's executions only • BUILD 2026-11-11s • 📥 TICK LIBRARY (download / keep / load real ticks), order-flow source badges (never from candles), the all-in-one ORDERFLOW desk, menu fix, ▦ grid lines on / off, 💡 3 SETUPS + OVERNIGHT preset • BUILD 2026-11-11r • 💡 BOLD / SMALL 1-A-DAY presets (one trade per account per day, ~1:1 wide bracket), Lucid payout locks the floor, payout hold, bracket re-priced for every trade • BUILD 2026-11-11q • funded trailing peak = the firm's liquidation value (closing commission), ✎ SYNC with Tradovate, EXECUTIONS fees from NinjaTrader • BUILD 2026-11-11p • 🎯 3 SETUPS: indicator layer, studio 3-SETUP ROTATION drawer, practice tickets, ROTATE guided source • BUILD 2026-11-11o • 🎯 3-SETUP ROTATION engine + study (FVG 50 % / aggression break / 123 engulfing, 30-account rotation, Lucid Flex 50K) • BUILD 2026-11-11n • LIVE TRADING: the account boxes fixed in their own row above the chart (bigger, never move / hide, kept in FULL CHART) + the account in words (firm • FUNDED / EVALUATION • trailing drawdown) + the bottom tab bar shrinks to fit • BUILD 2026-11-11m • entry marker: a small tick beside the candle (no big arrow / glow over the entry candle) • BUILD 2026-11-11l • 🧮 header TILES (balance, open, peak + time, floor $ + price + ▲ flash, room + drain bar, to lock / target + progress, the position) — each number once · 🆓 MANUAL practice (no rules) · 📊 ATTEMPTS tracker (summary, every attempt, its trades, ▶ jump, export, clear) · 🏷 gutter labels include the position / TP / SL (PEAK near the entry rides on it) · 🧠 ENTRY ANALYZER + 🧠 ENTRY SCORE (walk-forward, calibrated, says when there is no edge) • BUILD 2026-11-11k • 🔄 ROTATION SIM in the Backtest Studio (non-stop TP / SL brackets to the TPT lock or the blow: B / S patterns or rules, real ticks or the minute path with the reliability flag, ONE account + replay with FLOOR / PEAK / LOCK, 👥 POOL, 📊 ANALYZER + the no-edge maths, 🏆 FIND OPTIMAL checked on both halves, 💾 runs saved / reopened / compared) · 🖥 the chart first (drawers overlay it, one practice strip, the trailing numbers in the order column, FLOOR / LOCK / PEAK only, gutter labels never overlap) · 🔁 AUTO NEW ATTEMPT after a pass / lock / blow (on) · 📚 trailing-drawdown presets from the firm book + ＋ SAVE AS PRESET · 📼 LIVE DEMO history (saved + NinjaTrader, 5 / 30 / 90 / 365 days) • BUILD 2026-11-11j • ● LIVE DEMO in the Backtest Studio (real-time data, simulated fills, full prop practice) · several studios open at once · 🎯 PROP PRACTICE button in LIVE TRADING · 📐 the trailing-drawdown view (solid FLOOR / dotted PEAK / LOCK lines, the red room band, ▲ floor moved, the big panel: room $ + pts, peak, given back, to lock, balance) · 🎯 LOCK RACE preset (MNQ 5 … 60, 10 by default @ 9:30 with the 60-min trend; TP $2,000 / $1,000, SL floor / $1,000 / $500 / $250, BE at 75 %, the next trade aims for what is missing) • BUILD 2026-11-11i • 🔒 NinjaTrader Lockout recognised (entries refused, autopilot blocked) · 🎯 REVERSAL FVG scanner (signals only, ★ high volume, forward log) · 🎮 Sim101 listed · 🎯 live Sim101 prop practice · JJ removed • BUILD 2026-11-11h • TP / SL drag: the entry fades and can't be grabbed while dragging, a live points / $ label on the line, the order changes only on release • BUILD 2026-11-11g • 🤖 LIVE AUTOPILOT: GUIDED (flashing bracket, one press) for every firm, AUTO for Lucid / Tradeify only after ARM + typed START, through the armed links + limits • BUILD 2026-11-11f • defaults: ALL AT ONCE 2:00 + SPRINT 0 · 👥 owners (me / wife, 5 per firm each) · time presets · JJ strategy (practice) • BUILD 2026-11-11e • ● LIVE: only your active accounts (TPT eval / funded detected right, real balances, nicknames), groups + plan per group, CONFIRM no longer freezes • ▢ every window opens maximized (restore = 90 % of the screen), larger readable question dialogs • BUILD 2026-11-11d • 🔁 continuous runs until END by default (new eval → funded → payouts over and over), month by month, sprint badges • BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -36983,6 +37496,8 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static Button Btn(string text, Brush brush) { var b = new Button { Content = text, Background = brush, Foreground = IsLightBrush(brush) ? Bg : Text, FontWeight = FontWeights.SemiBold, Height = 32, Margin = new Thickness(4), Cursor = System.Windows.Input.Cursors.Hand }; try { b.Template = KeyButtonTemplate(); } catch { } return b; }
         // KEYSTONE buttons: rounded, a soft top sheen, a hairline edge; hover lightens, press darkens, disabled fades (not the NinjaTrader skin)
         private static ControlTemplate keyButtonTemplate;
+        internal const string KeyEdgeKey = "KeystoneButtonEdge"; private static readonly SolidColorBrush KeyEdgeDefault = FrozenArgb(70, 255, 255, 255);
+        private static SolidColorBrush FrozenArgb(byte a, byte r, byte g, byte b) { var x = new SolidColorBrush(Color.FromArgb(a, r, g, b)); try { x.Freeze(); } catch { } return x; }
         // ▶ THE RESUME window (start-up): SPASIX FUTURE, the build (⬆ upgraded from …), a short loading ring, then what resumes — one button
         private static bool ResumeWindow(Window owner, string upgradedFrom, string build, List<string> lines, List<string> skipped)
         {
@@ -37082,7 +37597,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (keyButtonTemplate != null) return keyButtonTemplate;
             var bd = new FrameworkElementFactory(typeof(Border), "bd");
             bd.SetValue(Border.CornerRadiusProperty, new CornerRadius(7)); bd.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
-            bd.SetValue(Border.BorderBrushProperty, new SolidColorBrush(Color.FromArgb(70, 255, 255, 255))); bd.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+            bd.SetResourceReference(Border.BorderBrushProperty, KeyEdgeKey); bd.SetValue(Border.BorderThicknessProperty, new Thickness(1));   /* 🍂 13k: the edge is a per-window resource (default = the old white hairline; a season tints it) */
+            try { var app = Application.Current; if (app != null && app.Resources != null && !app.Resources.Contains(KeyEdgeKey)) app.Resources[KeyEdgeKey] = KeyEdgeDefault; } catch { }
             var g = new FrameworkElementFactory(typeof(Grid));
             var sheen = new FrameworkElementFactory(typeof(Border)); sheen.SetValue(Border.CornerRadiusProperty, new CornerRadius(6)); sheen.SetValue(Border.BackgroundProperty, new LinearGradientBrush(Color.FromArgb(55, 255, 255, 255), Color.FromArgb(0, 255, 255, 255), 90));
             var hover = new FrameworkElementFactory(typeof(Border), "hover"); hover.SetValue(Border.CornerRadiusProperty, new CornerRadius(6)); hover.SetValue(Border.BackgroundProperty, System.Windows.Media.Brushes.Transparent);
@@ -40328,6 +40844,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private string studioTiles, studioAttemptsText, studioAttemptsExport; private Action studioAttempts;   /* 📊 11l: the attempts view's text / its export / repaint (the smoke test) */   /* 🧮 11l: the header tiles as text (the smoke test) */
         private string studioPracPanel; private Func<string> studioRaceGo; private Func<bool> studioDrawerOverlay; private Func<string> studioPracState;   /* 🖥 11k: the drawers overlay the chart · the practice state (attempt / tallies / preset / position) */   /* 📐 11j: the big practice panel's tiles as text (the smoke test) */
         private Func<string, List<KeystoneOfTick>> studioOfTicksFake;   /* ⚡ 13a tests only (the perf harness / smoke test): a stand-in for NinjaTrader's tick history + a live tap the test feeds */
+        private Func<string, string> studioLook;   /* 🍂 13k tests only: the window's LOOK (season / scene / photo / animation / quote) */
         private Func<string, List<KeystoneOfTick>, bool> studioOfPush; private Action studioOfExitForTest; private Func<string, string> studioOfEngine;   /* ⚡ 13a tests only: push live trades into a chart's tap • the engine state / switches (STATE, MASTER 0|1, CHIP 0|1, KILL 0|1) */
         private Func<string, List<KeystoneArcBar>> studioLiveFeedFake;   /* tests only: a stand-in for NinjaTrader's real-time feed (the session so far per symbol) */
         private static string ReplayJournalFile() { return Path.Combine(StudioFolder(), "ReplayJournal.csv"); }
@@ -40378,6 +40895,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private sealed class KeystoneWindow : Window
         {
             private bool wrapping; private TextBlock titleText; private DockPanel frame;
+            /* 🍂 13k LOOK hooks (display only): the header band behind the title bar (scene / photo / video / particles, never hit-testable), the window's back layer
+               (shows around the content — the margins / gaps — never over a chart), the bar, its glow line, the one-line quote slot, the title */
+            public Grid LookBand, LookBack; public DockPanel BarPanel; public Border AccentLine, QuoteHost; public TextBlock TitleBlock; public Brush BarDefault, LineDefault;
             public bool KeepSize;   // a window placed beside a chart: opens at its own size, never maximized by itself
             private static ImageSource icon;
             /* 🪟 BUILD 2026-11-11j — OPEN WINDOWS (like SpasiX MT5's title-bar tabs): every main window's title bar has ⧉ WINDOWS ▾ — the windows open now (click = to
@@ -40402,6 +40922,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             public KeystoneWindow()
             {
                 Open.Add(this); Closed += delegate { Open.Remove(this); };
+                try { if (Resources == null) Resources = new ResourceDictionary(); Resources[KeyEdgeKey] = KeyEdgeDefault; } catch { }   /* 🍂 13k: the buttons' hairline edge (a season tints it per window) */
                 HookMenus();   // ☰ our right-click menus in the glowing design
                 try
                 {
@@ -40485,12 +41006,133 @@ namespace NinjaTrader.NinjaScript.AddOns
                     bar.Children.Add(titleText);
                     var line = new Border { Height = 2, Background = new LinearGradientBrush(Color.FromRgb(0, 229, 255), Color.FromArgb(0, 124, 77, 255), 0) };
                     var f = new DockPanel { LastChildFill = true };
-                    DockPanel.SetDock(bar, Dock.Top); f.Children.Add(bar); DockPanel.SetDock(line, Dock.Top); f.Children.Add(line);
+                    /* 🍂 13k: the bar sits on a band whose back layer draws the season / scene (IsHitTestVisible = false — the bar keeps every click / drag) */
+                    var band = new Grid { Height = 34, ClipToBounds = true, Tag = "look.band.host" }; LookBand = new Grid { IsHitTestVisible = false, Tag = "look.band" }; band.Children.Add(LookBand); band.Children.Add(bar);
+                    BarPanel = bar; AccentLine = line; TitleBlock = titleText; BarDefault = bar.Background; LineDefault = line.Background;
+                    QuoteHost = new Border { Visibility = Visibility.Collapsed, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 10, 0), Tag = "look.quote.host" };
+                    System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(QuoteHost, true); bar.Children.Remove(titleText); DockPanel.SetDock(QuoteHost, Dock.Right); bar.Children.Add(QuoteHost); bar.Children.Add(titleText);
+                    DockPanel.SetDock(band, Dock.Top); f.Children.Add(band); DockPanel.SetDock(line, Dock.Top); f.Children.Add(line);
                     frame = f; Content = f;   // the window lets go of the content first, then the frame takes it
-                    f.Children.Add(inner);
+                    var body = new Grid(); LookBack = new Grid { IsHitTestVisible = false, Tag = "look.back" }; body.Children.Add(LookBack); body.Children.Add(inner); f.Children.Add(body);
                 }
                 finally { wrapping = false; }
             }
+        }
+        /* 🍂 BUILD 2026-11-13k — the LOOK views (display only — never an order, never hit-testable, never in the chart's render path).
+           KeystoneSceneView draws a KeystoneScene ONCE into a frozen DrawingGroup (re-built only when the size / scene / palette change) and is composited
+           from a BitmapCache; KeystoneFxView draws the particles (≤ 150) of KeystoneParticles — its own light timer invalidates only this element. */
+        internal static bool LookForceActive;   /* tests / the perf harness only: the stand-in window is never "active" */
+        private static Color LookColor(string hex) { var a = KeystoneSeasons.Argb(hex); return Color.FromArgb((byte)a[0], (byte)a[1], (byte)a[2], (byte)a[3]); }
+        private static SolidColorBrush LookSolid(string hex) { var b = new SolidColorBrush(LookColor(hex)); try { b.Freeze(); } catch { } return b; }
+        private static Brush LookLayerBrush(KeystoneSceneLayer l)
+        {
+            if (l.Colors.Length == 1) return LookSolid(l.Colors[0]);
+            Brush o;
+            if (l.Kind == "DISC") { var r = new RadialGradientBrush(); for (int i = 0; i < l.Colors.Length; i++) r.GradientStops.Add(new GradientStop(LookColor(l.Colors[i]), i < l.Offsets.Length ? l.Offsets[i] : (double)i / Math.Max(1, l.Colors.Length - 1))); o = r; }
+            else { var g = new LinearGradientBrush { StartPoint = new System.Windows.Point(0, 0), EndPoint = l.Horizontal ? new System.Windows.Point(1, 0) : new System.Windows.Point(0, 1) }; for (int i = 0; i < l.Colors.Length; i++) g.GradientStops.Add(new GradientStop(LookColor(l.Colors[i]), i < l.Offsets.Length ? l.Offsets[i] : (double)i / Math.Max(1, l.Colors.Length - 1))); o = g; }
+            try { o.Freeze(); } catch { }
+            return o;
+        }
+        private static System.Windows.Media.Drawing LookDrawing(KeystoneSceneLayer l)
+        {
+            var br = LookLayerBrush(l); var p = l.Pts;
+            if (l.Kind == "POLY" && p.Count >= 6)
+            {
+                var g = new StreamGeometry(); using (var c = g.Open()) { c.BeginFigure(new System.Windows.Point(p[0], p[1]), true, true); var pts = new List<System.Windows.Point>(p.Count / 2); for (int i = 2; i + 1 < p.Count; i += 2) pts.Add(new System.Windows.Point(p[i], p[i + 1])); c.PolyLineTo(pts, false, true); }
+                try { g.Freeze(); } catch { }
+                return new GeometryDrawing(br, null, g);
+            }
+            if (l.Kind == "DISC" && p.Count >= 3) { var e = new EllipseGeometry(new System.Windows.Point(p[0], p[1]), p[2], p[2]); try { e.Freeze(); } catch { } return new GeometryDrawing(br, null, e); }
+            if (l.Kind == "DOTS" && p.Count >= 3) { var gg = new GeometryGroup { FillRule = FillRule.Nonzero }; for (int i = 0; i + 2 < p.Count; i += 3) gg.Children.Add(new EllipseGeometry(new System.Windows.Point(p[i], p[i + 1]), p[i + 2], p[i + 2])); try { gg.Freeze(); } catch { } return new GeometryDrawing(br, null, gg); }
+            if (l.Kind == "LINES" && p.Count >= 4) { var gg = new GeometryGroup(); for (int i = 0; i + 3 < p.Count; i += 4) gg.Children.Add(new LineGeometry(new System.Windows.Point(p[i], p[i + 1]), new System.Windows.Point(p[i + 2], p[i + 3]))); try { gg.Freeze(); } catch { } var pen = new System.Windows.Media.Pen(br, l.Width); try { pen.Freeze(); } catch { } return new GeometryDrawing(null, pen, gg); }
+            return null;
+        }
+        private sealed class KeystoneSceneView : FrameworkElement
+        {
+            public string Scene = ""; public KeystoneSeasonPalette Pal; public int Seed = 7, Builds; public double FixW, FixH; System.Windows.Media.DrawingGroup cache; string key = "";
+            public KeystoneSceneView() { IsHitTestVisible = false; Tag = "look.scene"; try { CacheMode = new BitmapCache(); } catch { } SizeChanged += delegate { InvalidateVisual(); }; }
+            public void Set(string scene, KeystoneSeasonPalette pal) { scene = scene ?? ""; if (Scene == scene && ReferenceEquals(Pal, pal)) return; Scene = scene; Pal = pal; key = ""; InvalidateVisual(); }
+            public double W { get { return FixW > 0 ? FixW : ActualWidth; } } public double H { get { return FixH > 0 ? FixH : ActualHeight; } }
+            public System.Windows.Media.DrawingGroup Build(double w, double h)
+            {
+                if (Pal == null || w < 2 || h < 2) return null; string k = Scene + "|" + Pal.Season + Pal.Accent + Pal.Deep + "|" + Math.Round(w) + "|" + Math.Round(h);
+                if (k == key && cache != null) return cache;
+                var g = new System.Windows.Media.DrawingGroup(); foreach (var l in KeystoneScene.Build(Scene, Pal, w, h, Seed)) { var d = LookDrawing(l); if (d != null) g.Children.Add(d); }
+                try { g.Freeze(); } catch { }
+                cache = g; key = k; Builds++; return g;
+            }
+            protected override void OnRender(System.Windows.Media.DrawingContext dc) { var g = Build(W, H); if (g != null) dc.DrawDrawing(g); }
+        }
+        private sealed class KeystoneFxView : FrameworkElement
+        {
+            public readonly KeystoneParticles Sim = new KeystoneParticles(); public KeystoneSeasonPalette Pal; public long Frames;
+            readonly Brush[] white = new Brush[10]; readonly Brush[][] leaf = { new Brush[10], new Brush[10], new Brush[10] }; readonly System.Windows.Media.Pen[] rain = new System.Windows.Media.Pen[10]; Brush glow, mist; StreamGeometry rays; string pkey = "", rkey = "";
+            public KeystoneFxView() { IsHitTestVisible = false; Tag = "look.fx"; }
+            static int Q(double a) { return Math.Max(0, Math.Min(9, (int)(a * 10))); }
+            void Prep()
+            {
+                string k = Pal.Accent + Pal.Accent2 + Pal.Glow; if (k == pkey) return; pkey = k;
+                for (int q = 0; q < 10; q++)
+                {
+                    double a = (q + 0.5) / 10; white[q] = LookSolid(KeystoneSeasons.Alpha("#FFFFFF", a));
+                    leaf[0][q] = LookSolid(KeystoneSeasons.Alpha(Pal.Accent, a)); leaf[1][q] = LookSolid(KeystoneSeasons.Alpha(Pal.Accent2, a)); leaf[2][q] = LookSolid(KeystoneSeasons.Alpha(Pal.Glow, a));
+                    var pen = new System.Windows.Media.Pen(LookSolid(KeystoneSeasons.Alpha(KeystoneSeasons.Mix("#FFFFFF", Pal.Accent, 0.3), a)), 0.8); try { pen.Freeze(); } catch { } rain[q] = pen;
+                }
+                glow = LookSolid(Pal.Glow);
+                var m = new RadialGradientBrush(); m.GradientStops.Add(new GradientStop(LookColor("#FFFFFFFF"), 0)); m.GradientStops.Add(new GradientStop(LookColor("#00FFFFFF"), 1)); try { m.Freeze(); } catch { } mist = m;
+            }
+            void PrepRays()
+            {
+                string k = Sim.N + "|" + Math.Round(Sim.W) + "|" + Math.Round(Sim.H); if (k == rkey && rays != null) return; rkey = k;
+                var g = new StreamGeometry(); double cx = Sim.W * 0.62, cy = Sim.H * 0.5, len = Math.Max(Sim.W * 0.22, 60), sp = 0.05;
+                using (var c = g.Open()) for (int i = 0; i < Sim.N; i++) { double an = i * Math.PI * 2 / Math.Max(1, Sim.N); c.BeginFigure(new System.Windows.Point(cx, cy), true, true); c.PolyLineTo(new List<System.Windows.Point> { new System.Windows.Point(cx + len * Math.Cos(an - sp), cy + len * Math.Sin(an - sp)), new System.Windows.Point(cx + len * Math.Cos(an + sp), cy + len * Math.Sin(an + sp)) }, false, true); }
+                try { g.Freeze(); } catch { }
+                rays = g;
+            }
+            public void RenderTo(System.Windows.Media.DrawingContext dc)
+            {
+                var s = Sim; if (s.N == 0 || Pal == null || dc == null) return; Prep();
+                switch (s.Kind)
+                {
+                    case "SNOW": for (int i = 0; i < s.N; i++) dc.DrawEllipse(white[Q(s.Alpha(i))], null, new System.Windows.Point(s.X[i], s.Y[i]), s.S[i], s.S[i]); break;
+                    case "STARS": for (int i = 0; i < s.N; i++) dc.DrawEllipse(white[Q(s.Alpha(i))], null, new System.Windows.Point(s.X[i], s.Y[i]), s.S[i] * 0.55, s.S[i] * 0.55); break;
+                    case "RAIN": for (int i = 0; i < s.N; i++) dc.DrawLine(rain[Q(s.Alpha(i))], new System.Windows.Point(s.X[i], s.Y[i]), new System.Windows.Point(s.X[i] + s.Vx[i] * 0.04, s.Y[i] + s.S[i])); break;
+                    case "LEAVES": for (int i = 0; i < s.N; i++) dc.DrawEllipse(leaf[i % 3][Q(s.Alpha(i))], null, new System.Windows.Point(s.X[i], s.Y[i]), s.S[i] * (0.35 + 0.65 * s.Tumble(i)), s.S[i] * 0.6); break;
+                    case "SUN": PrepRays(); dc.PushOpacity(Math.Max(0, Math.Min(1, s.Alpha(0)))); dc.PushTransform(new RotateTransform(s.P[0] * 180 / Math.PI, s.W * 0.62, s.H * 0.5)); dc.DrawGeometry(glow, null, rays); dc.Pop(); dc.Pop(); break;
+                    case "MIST": for (int i = 0; i < s.N; i++) { dc.PushOpacity(Math.Max(0, Math.Min(1, s.Alpha(i)))); dc.DrawEllipse(mist, null, new System.Windows.Point(s.X[i], s.Y[i]), s.S[i] * 2.4, s.S[i] * 0.55); dc.Pop(); } break;
+                }
+            }
+            protected override void OnRender(System.Windows.Media.DrawingContext dc) { RenderTo(dc); }
+        }
+        // 📷 a picture decoded ONCE at the display width (never the full camera resolution), frozen; null = unreadable (the caller falls back with a one-line note)
+        private static ImageSource LookBitmap(string file, int decodeWidth)
+        {
+            try
+            {
+                var b = new System.Windows.Media.Imaging.BitmapImage(); b.BeginInit(); b.UriSource = new Uri(file, UriKind.Absolute); b.DecodePixelWidth = Math.Max(64, decodeWidth);
+                b.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad; b.CreateOptions = System.Windows.Media.Imaging.BitmapCreateOptions.IgnoreColorProfile; b.EndInit(); b.Freeze(); return b;
+            }
+            catch { return null; }
+        }
+        // 📷 the ONE network call of the LOOK: a catalog photo, only when the user clicks its template (background thread, HTTPS to the two image hosts, 25 s, 3 MB)
+        private static string LookDownload(KeystoneLookPhoto p, string dir)
+        {
+            if (p == null || !KeystoneLookCatalog.UrlOk(p.Url)) return "not an allowed photo address";
+            try
+            {
+                try { System.Net.ServicePointManager.SecurityProtocol |= (System.Net.SecurityProtocolType)3072; } catch { }   // TLS 1.2
+                var rq = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(p.Url); rq.Timeout = KeystoneLookCatalog.TimeoutMs; rq.ReadWriteTimeout = KeystoneLookCatalog.TimeoutMs; rq.UserAgent = "KeyStone-Look/1.0"; rq.AllowAutoRedirect = false;
+                byte[] bytes;
+                using (var rs = rq.GetResponse()) using (var st = rs.GetResponseStream()) using (var ms = new MemoryStream())
+                {
+                    var buf = new byte[65536]; int n; while ((n = st.Read(buf, 0, buf.Length)) > 0) { ms.Write(buf, 0, n); if (ms.Length > KeystoneLookCatalog.MaxBytes) return "the download was larger than 3 MB"; }
+                    bytes = ms.ToArray();
+                }
+                string bad = KeystoneLookCatalog.CheckBytes(bytes); if (bad != "") return bad;
+                Directory.CreateDirectory(dir); string f = KeystoneLookCatalog.CacheFile(dir, p), tmp = f + ".part"; File.WriteAllBytes(tmp, bytes); if (File.Exists(f)) File.Delete(f); File.Move(tmp, f);
+                return "";
+            }
+            catch (Exception ex) { return "offline or blocked (" + ex.GetType().Name + ")"; }
         }
         private static readonly string[][] ChartThemeDefs =
         {
@@ -40664,7 +41306,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly string[] StudioHookNames = { "replayTraderWindow", "replayTrader", "replayTraderTimer", "replayTraderLoad", "replayTraderFlat", "replayTraderEnd", "replayTraderOrder", "replayTraderStep", "replayTraderNewAccount", "replayTraderRewind",
             "studioStartRange", "studioPropStart", "studioPropSim", "studioPropRunDay", "studioAddSymbol", "studioRotEnter", "studioBoth", "studioTrader", "studioPropExport", "studioPropCompare", "studioPropFastStop", "studioPropNext", "studioPropView",
             "studioStrategy", "studioLayer", "studioRfvgErr", "studioRfvgSeen", "studioTriErr", "studioTriTicket", "studioTriSeen", "studioTriTake", "studioTriRot", "studioOfDesk", "studioLayerBar", "studioOfConfirm", "studioSetMode", "studioModeNow", "studioRotSides", "studioDataChanged", "studioShowReportDay", "studioDollarBracket", "studioTradeTags", "studioPoolAct", "studioPoolToggle",
-            "studioMainRow", "studioOpenDrawer", "studioShowDrawer", "studioTopRows", "studioTicksExport", "studioTradesExport", "studioLiveDemo", "studioLiveStep", "studioLiveBadge", "studioLivePush", "studioPracPanel", "studioRaceGo", "studioIsLive", "studioRotSim", "studioDrawerOverlay", "studioPracState", "studioLiveHistory", "studioTiles", "studioAttempts", "studioAttemptsText", "studioAttemptsExport", "studioEntryScore", "studioEntry" };
+            "studioMainRow", "studioOpenDrawer", "studioShowDrawer", "studioTopRows", "studioTicksExport", "studioTradesExport", "studioLiveDemo", "studioLiveStep", "studioLiveBadge", "studioLivePush", "studioPracPanel", "studioRaceGo", "studioIsLive", "studioRotSim", "studioDrawerOverlay", "studioPracState", "studioLiveHistory", "studioTiles", "studioAttempts", "studioAttemptsText", "studioAttemptsExport", "studioEntryScore", "studioEntry", "studioLook" };
         private static System.Reflection.FieldInfo StudioHookField(string n) { return typeof(KeystoneArc5MResearchLab).GetField(n, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public); }
         private void SaveStudioHooks(Window owner)
         {
@@ -41188,6 +41830,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             };
             var themes = ChartThemeDefs.Select(t => t[1] == "" ? new ChartTheme { Name = t[0], Bg = Panel, Grid = Tint(Card, 160), Up = Green, Down = Red, Text = Muted } : new ChartTheme { Name = t[0], Bg = HexBrush(t[1]), Grid = HexBrush(t[2]), Up = HexBrush(t[3]), Down = HexBrush(t[4]), Text = HexBrush(t[5]), Hollow = t[6] == "1", Style = t.Length > 7 ? t[7] : "", Group = t.Length > 8 ? t[8] : "" }).ToList();
             int themeIndex = Math.Max(0, themes.FindIndex(t => t.Name == wsGet("theme", "TRADINGVIEW DARK"))); bool hollowUp = wsGet("hollow", "0") == "1";
+            Action lookOpenH = null; var lookVeils = new List<Border>(); var lookTmplBtns = new List<Button>();   /* 🍂 13k: the 🎨 LOOK gallery, the "faint behind the chart" veil of every plot (collapsed by default), the 🎨 template buttons (their label follows a photo template's chart match) */
             // LIVE TRADING layers: every level ALWAYS / NEAR (fades in near price, flashing) / OFF; setups, news, drawings on / off
             var layerModes = new KeystoneLayerModes(); string layerSymR = null; layerModes.Sym = () => layerSymR ?? (active != null ? active.Symbol : "");   // per instrument: the pane being drawn, else the selected one
             if (liveWindow) foreach (var lk0 in new[] { "PDH", "PDL", "PDC", "ONH", "ONL", "HOD", "LOD" }) layerModes[lk0] = KeystoneLiveTools.Off;   // highs / lows lines start OFF every time (LAYERS turns them on)
@@ -45343,7 +45986,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 // chart: the canvas draws, a transparent layer on top takes the mouse
                 var cv = new Canvas { Background = Panel, ClipToBounds = true, IsHitTestVisible = false, Tag = "chart.plot" }; pn.Canvas = cv;
                 var hit = new Border { Background = System.Windows.Media.Brushes.Transparent, Cursor = System.Windows.Input.Cursors.Cross, Focusable = true }; pn.Hit = hit;
-                var chartGrid = new Grid(); chartGrid.Children.Add(cv); chartGrid.Children.Add(hit);
+                var chartGrid = new Grid(); chartGrid.Children.Add(cv); { var veil = new Border { IsHitTestVisible = false, Visibility = Visibility.Collapsed, Tag = "look.veil" }; lookVeils.Add(veil); chartGrid.Children.Add(veil); } chartGrid.Children.Add(hit);   /* 🍂 13k: the veil sits between the drawing and the mouse layer — never hit-testable, ≤ 6 %, static */
                 // timeframes: one click (keys 1 … 9 too)
                 var tfStrip = new WrapPanel { Margin = new Thickness(0, 0, 0, 3) }; var tfButtons = new List<Button>();
                 for (int ti = 0; ti < tfNames.Length; ti++)
@@ -45497,7 +46140,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var sp = new ReplayPane { Symbol = sym, IsSplit = true, Main = pn, Tf = tfMinutes[Math.Max(0, Math.Min(tfMinutes.Length - 1, splitTf))] }; pn.Split = sp;
                 var cv2 = new Canvas { Background = Panel, ClipToBounds = true, IsHitTestVisible = false, Tag = "chart.plot" }; sp.Canvas = cv2;
                 var hit2 = new Border { Background = System.Windows.Media.Brushes.Transparent, Cursor = System.Windows.Input.Cursors.Cross, Focusable = true }; sp.Hit = hit2;
-                var chart2 = new Grid(); chart2.Children.Add(cv2); chart2.Children.Add(hit2);
+                var chart2 = new Grid(); chart2.Children.Add(cv2); { var veil2 = new Border { IsHitTestVisible = false, Visibility = Visibility.Collapsed, Tag = "look.veil" }; lookVeils.Add(veil2); chart2.Children.Add(veil2); } chart2.Children.Add(hit2);
                 var strip2 = new WrapPanel { Margin = new Thickness(0, 0, 0, 3) };
                 for (int ti = 0; ti < tfNames.Length; ti++)
                 {
@@ -45523,7 +46166,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 {   // 🎨 TEMPLATE (as in SpasiX for MT5): the chart's colour templates in their groups — point at one to PREVIEW it on the chart at once,
                     // click to keep it; closing the menu without a click goes back to the one you had
                     var tmplBtn = Btn("🎨 " + themes[themeIndex].Name + " ▾", Card); tmplBtn.Height = 26; tmplBtn.FontSize = 12; tmplBtn.Margin = new Thickness(0, 0, 2, 0); tmplBtn.Padding = new Thickness(8, 0, 8, 0);
-                    tmplBtn.ToolTip = "Chart template: point at one to preview it, click to keep it"; HelpOn(tmplBtn, "TB.TEMPLATE");
+                    tmplBtn.ToolTip = "Chart template: point at one to preview it, click to keep it"; HelpOn(tmplBtn, "TB.TEMPLATE"); lookTmplBtns.Add(tmplBtn);
                     tmplBtn.Click += delegate
                     {
                         int kept = themeIndex; bool chosen = false; var cmT = new ContextMenu(); var tg = new Dictionary<string, MenuItem>();
@@ -45553,6 +46196,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                             cmT.Items.Add(palM);
                         }
                         var hol = new MenuItem { Header = (hollowUp ? "✓ " : "") + "Hollow up candles" }; hol.Click += delegate { chosen = true; hollowUp = !hollowUp; foreach (var p2 in panes) render(p2); if (saveWorkspace != null) saveWorkspace(); }; cmT.Items.Add(hol);
+                        cmT.Items.Add(new Separator());   /* 🍂 13k: ONE entry for the look — the gallery opens inside this window (never a separate window) */
+                        var lookMi = new MenuItem { Header = "🎨 LOOK ▾  seasons • scenes • 📷 photos • ✨ animation • 💬 quotes", Tag = "look.menu", FontWeight = FontWeights.Bold, ToolTip = "Seasonal accents, landscapes (drawn or real photos), light animation around the chart, the header quote / reminders — one-click previews, ✓ KEEP or ↺ BACK. Display only." };
+                        lookMi.Click += delegate { chosen = true; if (lookOpenH != null) lookOpenH(); }; cmT.Items.Add(lookMi);
                         cmT.Closed += delegate { if (!chosen || themeIndex != kept) show(kept); };
                         cmT.PlacementTarget = tmplBtn; cmT.IsOpen = true;
                     };
@@ -55580,6 +56226,329 @@ namespace NinjaTrader.NinjaScript.AddOns
                 studioTopRows = () => new UIElement[] { bar1, info }.Count(x => x.Visibility == Visibility.Visible) + (drawerHost.Visibility == Visibility.Visible && row2s.Children.Contains(drawerHost) ? 1 : 0) + row2s.Children.Cast<UIElement>().Count(x => x != drawerHost && x != pBig && x.Visibility == Visibility.Visible && !(x is System.Windows.Controls.Panel && ((System.Windows.Controls.Panel)x).Children.Count == 0));
                 studioShowDrawer = showDrawer; studioMainRow = mainRow; studioLayer = (k, v) => { layerModes[k] = v; rfCache.Clear(); renderAll(); };
                 string was = wsGet("drawer", ""); if (pGet("drawer", "") != "") was = pGet("drawer", ""); if (drawers.ContainsKey(was)) showDrawer(was);
+            }
+            {   /* 🍂 BUILD 2026-11-13k — SEASONS + 🖼 SCENES + 📷 PHOTOS + ✨ ANIMATION + 💬 QUOTES for THIS window (display only: no order path, no link, no NinjaBroker;
+                   the P/L green / red and the chart's candles are never touched — a photo template only switches to one of the user's own chart templates, ↺ BACK restores).
+                   Placement: the header band (the title bar) + the window's back layer (the margins around the panels); "faint behind the chart" = a static ≤ 6 % veil.
+                   Everything here is IsHitTestVisible = false except the gallery and the quote's ✕. Remembered per window (look.live.* / look.bt.*). */
+                string lookWin = liveWindow ? "live" : "bt"; var kw = w as KeystoneWindow;
+                string lookDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "NinjaTrader 8", "KeyStone", "Scenes"); try { Directory.CreateDirectory(lookDir); } catch { }
+                Func<KeystoneLookSettings, KeystoneLookSettings> lkClone = s0 => { var d = s0.Write(); return KeystoneLookSettings.Read(k => d.ContainsKey(k) ? d[k] : ""); };
+                var look = KeystoneLookSettings.Read(k => { string v; return ws.TryGetValue("look." + lookWin + "." + k, out v) ? v : ""; });
+                Action<KeystoneLookSettings> lookSave = st => { try { var cur = ReadStudioWorkspace(); foreach (var kv in st.Write()) { cur["look." + lookWin + "." + kv.Key] = kv.Value; ws["look." + lookWin + "." + kv.Key] = kv.Value; } WriteStudioWorkspace(cur); } catch { } };
+                var lkBandScene = new KeystoneSceneView { Tag = "look.band.scene" }; var lkFx = new KeystoneFxView();
+                var lkBandPhoto = new Border { IsHitTestVisible = false, Visibility = Visibility.Collapsed, Tag = "look.band.photo" }; var lkBandScrim = new Border { IsHitTestVisible = false, Visibility = Visibility.Collapsed, Tag = "look.band.scrim" };
+                var lkCredit = new TextBlock { IsHitTestVisible = false, FontSize = 9, Opacity = 0.6, Foreground = System.Windows.Media.Brushes.White, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 0), Visibility = Visibility.Collapsed, Tag = "look.credit" };   /* centred under the band (the title is left, the quote right) */
+                var lkBackScene = new KeystoneSceneView { Tag = "look.back.scene" }; var lkBackImg = new System.Windows.Controls.Image { IsHitTestVisible = false, Stretch = Stretch.UniformToFill, Visibility = Visibility.Collapsed, Tag = "look.back.photo" };
+                System.Windows.Controls.MediaElement lkVid = null; string lkVidFile = "";
+                if (kw != null && kw.LookBand != null) { foreach (var e0 in new UIElement[] { lkBandScene, lkBandPhoto, lkBandScrim, lkFx, lkCredit }) kw.LookBand.Children.Add(e0); }
+                if (kw != null && kw.LookBack != null) { kw.LookBack.Children.Add(lkBackScene); kw.LookBack.Children.Add(lkBackImg); kw.LookBack.Opacity = 0.55; }
+                var lkTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(33) }; var lkClock = System.Diagnostics.Stopwatch.StartNew(); double lkLast = 0;
+                var lkQuoteTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(5) };
+                string lkNote = "", lkSeason = "", lkScene = "", lkFile = "", lkFileKind = "", lkAnim = ""; KeystoneSeasonPalette lkPal = null; ImageSource lkBmp = null; string lkBmpFile = "";
+                Func<bool> lkPaused = () => w.WindowState == WindowState.Minimized || !(w.IsActive || LookForceActive) || Mouse.LeftButton == MouseButtonState.Pressed || Mouse.Captured != null;
+                Func<double> lkBandW = () => kw != null && kw.LookBand != null && kw.LookBand.ActualWidth > 0 ? kw.LookBand.ActualWidth : 1600;
+                Action lkSlice = delegate
+                {   /* the header band shows the photo's slice around its horizon (BandY) */
+                    var ib = lkBandPhoto.Background as ImageBrush; if (ib == null) return; var ph = look.Photo; double by = ph != null ? ph.BandY : 0.5;
+                    var bs = lkBmp as System.Windows.Media.Imaging.BitmapSource; double asp = bs != null && bs.PixelHeight > 0 ? (double)bs.PixelWidth / bs.PixelHeight : 16.0 / 9;
+                    var sl = KeystoneLookCatalog.BandSlice(by, lkBandW(), 34, asp); ib.Viewbox = new Rect(0, sl[0], 1, sl[1]);
+                };
+                Action lkVidState = delegate
+                {   /* a video plays only while it is useful: not minimized / inactive / while the chart is dragged; 📉 LOW POWER = its first frame */
+                    if (lkVid == null) return; try { if (look.LowPower || lkPaused()) lkVid.Pause(); else lkVid.Play(); } catch { }
+                };
+                Action lkAnimState = delegate
+                {
+                    bool on = lkAnim != "" && lkFx.Sim.N > 0 && w.WindowState != WindowState.Minimized;
+                    lkFx.Visibility = lkAnim != "" ? Visibility.Visible : Visibility.Collapsed;
+                    if (on && !lkTimer.IsEnabled) { lkLast = lkClock.Elapsed.TotalSeconds; lkTimer.Start(); } else if (!on && lkTimer.IsEnabled) lkTimer.Stop();
+                };
+                Action lkStep = delegate
+                {
+                    using (KeystonePerf.T("look.fx"))
+                    {
+                        double now = lkClock.Elapsed.TotalSeconds, dt = now - lkLast; lkLast = now; if (lkPaused()) return;
+                        lkFx.Sim.Step(dt); lkFx.InvalidateVisual(); lkFx.Frames++;   /* only this element re-renders — never the chart */
+                    }
+                };
+                lkTimer.Tick += delegate { lkStep(); };
+                // 💬 the one header line (quote / reminder) + ✕ = hide today's quotes
+                var lkQuoteText = new TextBlock { FontSize = 11.5, FontStyle = FontStyles.Italic, TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 620, Tag = "look.quote" };
+                var lkQuoteX = new TextBlock { Text = "✕", FontSize = 10.5, Margin = new Thickness(8, 0, 0, 0), Cursor = System.Windows.Input.Cursors.Hand, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7, ToolTip = "hide today's quotes (the reminders — floor, day loss, the 16:54 close, a lock — keep showing). 🎨 LOOK ▾ brings them back.", Tag = "look.quote.x" };
+                var lkQuoteRow = new StackPanel { Orientation = Orientation.Horizontal }; lkQuoteRow.Children.Add(lkQuoteText); lkQuoteRow.Children.Add(lkQuoteX); if (kw != null && kw.QuoteHost != null) kw.QuoteHost.Child = lkQuoteRow;
+                Func<KeystoneLookInputs> lookInputs = () =>
+                {
+                    var i = new KeystoneLookInputs { Live = liveWindow, Ny = nyNow() }; if (!liveWindow) return i;
+                    try
+                    {
+                        i.Locked = panes.Any(p => p.Link != null && p.Link.Locked); i.LockedNt = panes.Any(p => p.Link != null && p.Link.ExternalLocked);
+                        double bal, t;
+                        if (linkedName != null && todayVals.TryGetValue("bal", out bal) && bal > 0)
+                        {
+                            i.HasAccount = true; if (todayVals.TryGetValue("today", out t)) i.Today = t; if (todayVals.TryGetValue("cap", out t)) i.DayCap = t; if (todayVals.TryGetValue("loss", out t)) i.DayLoss = t;
+                            if (todayVals.TryGetValue("dd", out t)) i.Dd = t; if (todayVals.TryGetValue("funded", out t)) i.Funded = t > 0;
+                            i.Room = lvlRoomOf != null && panes.Count > 0 ? lvlRoomOf(panes[0]) : double.NaN;
+                            double tg, st; if (todayVals.TryGetValue("target", out tg) && tg > 0 && todayVals.TryGetValue("start", out st) && st > 0) i.TargetLeft = st + tg - bal;
+                        }
+                    }
+                    catch { }
+                    return i;
+                };
+                Action lookLine = delegate
+                {
+                    using (KeystonePerf.T("look.quote"))
+                    {
+                        if (kw == null || kw.QuoteHost == null) return; var ny = nyNow();
+                        var ln = KeystoneSeasonQuotes.Line(look.Quotes, lkSeason, lookInputs(), look.QuotesHiddenOn(ny));
+                        kw.QuoteHost.Visibility = ln.Item1 == "" ? Visibility.Collapsed : Visibility.Visible; if (ln.Item1 == "") return;
+                        lkQuoteText.Text = ln.Item1; lkQuoteText.MaxWidth = Math.Max(240, (w.ActualWidth > 0 ? w.ActualWidth : 1600) * 0.40);
+                        var ink = lkPal != null ? lkPal.Ink : "#96A5C3";
+                        lkQuoteText.Foreground = ln.Item2 == "WARN" ? (Brush)Orange : ln.Item2 == "CLOSE" ? (Brush)Gold : LookSolid(KeystoneSeasons.Alpha(ink, ln.Item2 == "QUOTE" ? 0.82 : 0.95));
+                        lkQuoteText.FontStyle = ln.Item2 == "QUOTE" ? FontStyles.Italic : FontStyles.Normal; lkQuoteX.Foreground = lkQuoteText.Foreground;
+                        lkQuoteX.Visibility = ln.Item2 == "QUOTE" ? Visibility.Visible : Visibility.Collapsed;
+                        var ph = look.Photo; kw.QuoteHost.ToolTip = ln.Item1 + (ln.Item2 == "QUOTE" ? "\n\na new quote every 3 hours • ✕ = hide today's quotes" : "\n\na reminder from your account / the clock — read only") + (ph != null ? "\n\n" + ph.Name + " • " + ph.Credit : "") + (lkNote != "" ? "\n\n" + lkNote : "");
+                    }
+                };
+                lkQuoteX.MouseLeftButtonUp += (s0, e0) => { look.HideDay = nyNow().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); lookSave(look); lookLine(); e0.Handled = true; };
+                lkQuoteTimer.Tick += delegate { lookLine(); }; lkQuoteTimer.Start();
+                int lkThemeSaved = themeIndex;
+                Action<int> lkSetTheme = ix =>
+                {
+                    if (ix < 0 || ix >= themes.Count || ix == themeIndex) return; themeIndex = ix;
+                    foreach (var b0 in lookTmplBtns) b0.Content = "🎨 " + themes[ix].Name + " ▾"; renderAll();
+                };
+                bool lkMatchTheme = wsGet("look." + lookWin + ".matchtheme", "1") != "0";
+                Action lookApply = null;
+                lookApply = delegate
+                {
+                    using (KeystonePerf.T("look.apply"))
+                    {
+                        var ny = nyNow(); lkNote = ""; lkSeason = look.SeasonNow(ny); var ph = look.Photo; lkScene = ph != null ? "" : look.SceneNow(ny); lkFile = ""; lkFileKind = "";
+                        lkPal = ph != null ? ph.Palette() : KeystoneSeasons.Palette(lkSeason); bool accent = lkSeason != "" || ph != null;
+                        if (ph != null)
+                        {
+                            string cf = KeystoneLookCatalog.CacheFile(lookDir, ph);
+                            if (File.Exists(cf)) { lkFile = cf; lkFileKind = "PICTURE"; } else { lkScene = ph.Fallback; lkNote = "📷 " + ph.Name.Substring(2).Trim() + " is not downloaded yet — the drawn " + KeystoneScene.Label(ph.Fallback) + " meanwhile (🎨 LOOK ▾ → click it to download)"; }
+                        }
+                        else if (lkScene == "PICTURE" || lkScene == "VIDEO")
+                        {
+                            string pr = KeystoneLookFiles.Problem(look.File);
+                            if (pr == "" && KeystoneLookFiles.KindOf(look.File) == lkScene) { lkFile = look.File; lkFileKind = lkScene; lkScene = ""; }
+                            else { lkNote = (lkScene == "VIDEO" ? "🎞 " : "📷 ") + (pr != "" ? pr : "that file is not a " + lkScene.ToLowerInvariant()) + " — no scene"; lkScene = ""; }
+                        }
+                        if (lkFileKind == "PICTURE")
+                        {
+                            if (lkBmpFile != lkFile || lkBmp == null) { lkBmp = LookBitmap(lkFile, KeystoneLookFiles.DecodeWidth(w.ActualWidth > 0 ? w.ActualWidth : 1920)); lkBmpFile = lkBmp != null ? lkFile : ""; }
+                            if (lkBmp == null) { lkNote = "📷 cannot read " + Path.GetFileName(lkFile) + " — " + (ph != null ? "the drawn " + KeystoneScene.Label(ph.Fallback) : "no scene"); lkScene = ph != null ? ph.Fallback : ""; lkFile = ""; lkFileKind = ""; }
+                        }
+                        // the accents (never a P/L / candle colour): the bar, its glow line, the title ink, the window back, the buttons' hairline edge, the tab frame
+                        bool band = accent || lkScene != "" || lkFile != "";
+                        if (kw != null)
+                        {
+                            if (kw.BarPanel != null) kw.BarPanel.Background = band ? (Brush)System.Windows.Media.Brushes.Transparent : kw.BarDefault;
+                            if (kw.AccentLine != null)
+                            {
+                                if (accent) { var lg = new LinearGradientBrush { StartPoint = new System.Windows.Point(0, 0), EndPoint = new System.Windows.Point(1, 0) }; lg.GradientStops.Add(new GradientStop(LookColor(lkPal.Accent), 0)); lg.GradientStops.Add(new GradientStop(LookColor(lkPal.Accent2), 0.55)); lg.GradientStops.Add(new GradientStop(LookColor(KeystoneSeasons.Alpha(lkPal.Accent2, 0)), 1)); try { lg.Freeze(); } catch { } kw.AccentLine.Background = lg; kw.AccentLine.Effect = new System.Windows.Media.Effects.DropShadowEffect { Color = LookColor(lkPal.Glow), BlurRadius = 10, ShadowDepth = 0, Opacity = 0.55 }; }
+                                else { kw.AccentLine.Background = kw.LineDefault; kw.AccentLine.Effect = null; }
+                            }
+                            if (kw.TitleBlock != null) kw.TitleBlock.Foreground = accent ? LookSolid(KeystoneSeasons.Alpha(lkPal.Ink, 0.9)) : (Brush)LookSolid("#96A5C3");
+                            try { if (kw.Resources == null) kw.Resources = new ResourceDictionary(); kw.Resources[KeyEdgeKey] = accent ? (Brush)LookSolid(KeystoneSeasons.Alpha(lkPal.Accent, 0.34)) : KeyEdgeDefault; } catch { }
+                        }
+                        w.Background = accent ? LookSolid(KeystoneSeasons.Mix("#090D14", lkPal.Deep, 0.6)) : LookSolid("#090D14");
+                        tabs.BorderBrush = accent ? (Brush)LookSolid(KeystoneSeasons.Alpha(lkPal.Accent, 0.45)) : Card;
+                        // the header band: the drawn scene (or the accent sky), else the photo's slice; the back layer: the same, behind the panels
+                        lkBandScene.Set(lkScene, lkPal); lkBandScene.Visibility = band && lkFile == "" ? Visibility.Visible : Visibility.Collapsed;
+                        lkBackScene.Set(lkScene, lkPal); lkBackScene.Visibility = lkScene != "" && lkFile == "" && look.Place == "AROUND" ? Visibility.Visible : Visibility.Collapsed;
+                        if (lkFileKind == "PICTURE") { lkBandPhoto.Background = new ImageBrush(lkBmp) { Stretch = Stretch.Fill, ViewboxUnits = BrushMappingMode.RelativeToBoundingBox }; lkSlice(); lkBackImg.Source = lkBmp; }
+                        lkBandPhoto.Visibility = lkFileKind == "PICTURE" ? Visibility.Visible : Visibility.Collapsed; lkBackImg.Visibility = lkFileKind == "PICTURE" && look.Place == "AROUND" ? Visibility.Visible : Visibility.Collapsed;
+                        if (lkFileKind == "VIDEO")
+                        {
+                            if (lkVid == null)
+                            {
+                                lkVid = new System.Windows.Controls.MediaElement { IsHitTestVisible = false, IsMuted = true, Volume = 0, LoadedBehavior = System.Windows.Controls.MediaState.Manual, UnloadedBehavior = System.Windows.Controls.MediaState.Close, Stretch = Stretch.UniformToFill, ScrubbingEnabled = true, Tag = "look.video" };
+                                lkVid.MediaEnded += delegate { try { lkVid.Position = TimeSpan.Zero; lkVidState(); } catch { } };   /* looping */
+                                lkVid.MediaOpened += delegate { lkVidState(); };
+                                lkVid.MediaFailed += (s0, e0) => { try { lkNote = "🎞 the video could not be played (" + Path.GetFileName(lkVidFile) + ") — no scene"; lkVid.Visibility = Visibility.Collapsed; lookLine(); } catch { } };
+                                if (kw != null && kw.LookBack != null) kw.LookBack.Children.Add(lkVid);
+                            }
+                            if (lkVidFile != lkFile) { lkVidFile = lkFile; try { lkVid.Source = new Uri(lkFile, UriKind.Absolute); lkVid.Position = TimeSpan.Zero; } catch { } }
+                            lkVid.Visibility = Visibility.Visible; lkBandPhoto.Background = new VisualBrush(lkVid) { Stretch = Stretch.UniformToFill }; lkBandPhoto.Visibility = Visibility.Visible; lkVidState();
+                        }
+                        else if (lkVid != null) { try { lkVid.Pause(); lkVid.Visibility = Visibility.Collapsed; } catch { } }
+                        lkBandScrim.Visibility = lkFile != "" ? Visibility.Visible : Visibility.Collapsed;
+                        if (lkFile != "") { var sc = new LinearGradientBrush { StartPoint = new System.Windows.Point(0, 0), EndPoint = new System.Windows.Point(1, 0) }; foreach (var st in new[] { Tuple.Create(0.72, 0.0), Tuple.Create(0.2, 0.26), Tuple.Create(0.14, 0.55), Tuple.Create(0.62, 1.0) }) sc.GradientStops.Add(new GradientStop(LookColor(KeystoneSeasons.Alpha(lkPal.Deep, st.Item1)), st.Item2)); try { sc.Freeze(); } catch { } lkBandScrim.Background = sc; }
+                        lkCredit.Text = ph != null && lkFile != "" ? ph.Credit : ""; lkCredit.Visibility = lkCredit.Text != "" ? Visibility.Visible : Visibility.Collapsed;
+                        // "faint behind the chart": a static ≤ 6 % veil of the scene / picture (never a video, never animated inside the plot)
+                        bool faint = look.Place == "FAINT" && (lkScene != "" || lkFileKind == "PICTURE");
+                        foreach (var v in lookVeils)
+                        {
+                            v.Opacity = Math.Min(0.06, KeystoneLookSettings.FaintOpacity); v.Visibility = faint ? Visibility.Visible : Visibility.Collapsed;
+                            if (!faint) { v.Child = null; v.Background = null; continue; }
+                            if (lkFileKind == "PICTURE") { v.Child = null; v.Background = new ImageBrush(lkBmp) { Stretch = Stretch.UniformToFill }; }
+                            else { v.Background = null; var sv = v.Child as KeystoneSceneView; if (sv == null) { sv = new KeystoneSceneView { Tag = "look.veil.scene" }; v.Child = sv; } sv.Set(lkScene, lkPal); }
+                        }
+                        // ✨ the animation (header band only)
+                        lkAnim = look.AnimNow(ny); lkFx.Pal = lkPal; lkTimer.Interval = TimeSpan.FromMilliseconds(look.Reduce ? 66 : 33);
+                        if (lkFx.Sim.Kind != lkAnim || Math.Abs(lkFx.Sim.W - lkBandW()) > 1 || lkFx.Sim.Reduce != look.Reduce) lkFx.Sim.Reset(lkAnim, lkBandW(), 34, look.Reduce, 11);
+                        lkAnimState(); lookLine();
+                    }
+                };
+                if (kw != null && kw.LookBand != null) kw.LookBand.SizeChanged += delegate { lkSlice(); if (lkAnim != "" && Math.Abs(lkFx.Sim.W - lkBandW()) > 1) { lkFx.Sim.Reset(lkAnim, lkBandW(), 34, look.Reduce, 11); lkAnimState(); } };
+                w.Activated += delegate { lkAnimState(); lkVidState(); }; w.Deactivated += delegate { if (lkTimer.IsEnabled) lkTimer.Stop(); lkVidState(); };
+                w.StateChanged += delegate { lkAnimState(); lkVidState(); };
+                w.Closed += delegate { lkTimer.Stop(); lkQuoteTimer.Stop(); try { if (lkVid != null) lkVid.Close(); } catch { } };
+                // ⤓ a photo template: downloaded once (background), then shown — offline = the drawn fallback + a note
+                var lkBusy = new HashSet<string>(); Action<KeystoneLookPhoto, Action<string>> lkFetch = (ph, done) =>
+                {
+                    if (ph == null || File.Exists(KeystoneLookCatalog.CacheFile(lookDir, ph))) { done(""); return; }
+                    if (!lkBusy.Add(ph.Id)) return;
+                    System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                    {
+                        string err; try { err = LookDownload(ph, lookDir); } catch (Exception ex) { err = ex.GetType().Name; }
+                        try { w.Dispatcher.BeginInvoke(new Action(() => { lkBusy.Remove(ph.Id); done(err); })); } catch { }
+                    });
+                };
+                // 🎨 LOOK ▾ — the gallery INSIDE this window (never a separate OS window): hover = a live preview, click = choose, ✓ KEEP / ↺ BACK (Esc)
+                var lkGallery = new Border { Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 10, 0), Width = 760, MaxHeight = 720, Background = Tint(Panel, 250), BorderBrush = Tint(Gold, 140), BorderThickness = new Thickness(1.2), CornerRadius = new CornerRadius(12), Padding = new Thickness(12, 10, 12, 10), Tag = "look.gallery" };
+                Grid.SetRowSpan(lkGallery, 4); System.Windows.Controls.Panel.SetZIndex(lkGallery, 95); root.Children.Add(lkGallery);
+                KeystoneLookSettings lkSnap = null, lkChosen = null; int lkSnapTheme = themeIndex, lkChosenTheme = themeIndex; TextBlock lkGalNote = null; Action lkGalBuild = null;
+                Action<Action<KeystoneLookSettings>> lkPreview = mut =>
+                {   /* hover: the chosen look + this change, shown at once (the chart template follows a photo's match when ☑) */
+                    var t = lkClone(lkChosen ?? look); mut(t); look = t; var ph = look.Photo;
+                    lkSetTheme(ph != null && lkMatchTheme ? Math.Max(0, themes.FindIndex(x => x.Name == ph.ChartTheme)) : lkChosenTheme); lookApply();
+                    if (lkGalNote != null) lkGalNote.Text = lkNote != "" ? lkNote : "previewing — click to choose, ✓ KEEP to save, ↺ BACK (Esc) to undo";
+                };
+                Action lkUnpreview = delegate { if (lkChosen == null) return; look = lkClone(lkChosen); lkSetTheme(lkChosenTheme); lookApply(); };
+                Action<Action<KeystoneLookSettings>> lkChoose = mut =>
+                {
+                    var t = lkClone(lkChosen ?? look); mut(t); lkChosen = t; var ph = t.Photo; if (ph != null && lkMatchTheme) { int ix = themes.FindIndex(x => x.Name == ph.ChartTheme); if (ix >= 0) lkChosenTheme = ix; }
+                    look = lkClone(t); lkSetTheme(lkChosenTheme); lookApply(); if (lkGalBuild != null) lkGalBuild();
+                };
+                Action<bool> lkClose = keep =>
+                {
+                    if (lkGallery.Visibility != Visibility.Visible) return; lkGallery.Visibility = Visibility.Collapsed;
+                    if (keep && lkChosen != null) { look = lkClone(lkChosen); lookSave(look); lkSetTheme(lkChosenTheme); if (saveWorkspace != null) saveWorkspace(); status.Text = "🎨 LOOK kept • " + (look.Photo != null ? look.Photo.Name : look.Scene == "MATCH" ? "the season's scene" : KeystoneScene.Label(look.Scene)) + (look.SeasonNow(nyNow()) != "" ? " • " + KeystoneSeasons.Icon(look.SeasonNow(nyNow())) + " " + look.SeasonNow(nyNow()) : "") + " (display only)"; }
+                    else if (lkSnap != null) { look = lkClone(lkSnap); lkSetTheme(lkSnapTheme); }
+                    lookApply(); lkSnap = null; lkChosen = null;
+                };
+                Func<string, Brush, string, Action, Action, Border> lkChip = (text, accentB, tip, hover, click) =>
+                {
+                    var b = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(9, 3, 9, 4), Margin = new Thickness(0, 0, 6, 6), Background = Tint((SolidColorBrush)accentB, 46), BorderBrush = Tint((SolidColorBrush)accentB, 150), BorderThickness = new Thickness(1), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = tip, Child = new TextBlock { Text = text, Foreground = Text, FontSize = 11.5, FontWeight = FontWeights.SemiBold }, Tag = "look.chip" };
+                    if (hover != null) { b.MouseEnter += delegate { hover(); }; b.MouseLeave += delegate { lkUnpreview(); }; }
+                    b.MouseLeftButtonUp += (s0, e0) => { click(); e0.Handled = true; }; return b;
+                };
+                var lkTiles = new Dictionary<string, Border>();   /* the tiles by id (the smoke test's HOVER / CLICK) */
+                Func<string, string, FrameworkElement, string, Action, Action, Border> lkTile = (id, label, thumb, tip, hover, click) =>
+                {
+                    var sp = new StackPanel(); var th = new Border { Width = 170, Height = 62, CornerRadius = new CornerRadius(6), ClipToBounds = true, Child = thumb, Background = Bg }; sp.Children.Add(th);
+                    sp.Children.Add(new TextBlock { Text = label, Foreground = Text, FontSize = 11, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 170, Margin = new Thickness(0, 3, 0, 0) });
+                    bool sel = lkChosen != null && ((id.StartsWith("PHOTO:") && lkChosen.Scene == id) || (!id.StartsWith("PHOTO:") && lkChosen.Scene == id));
+                    var b = new Border { Width = 182, Padding = new Thickness(5), Margin = new Thickness(0, 0, 6, 6), CornerRadius = new CornerRadius(9), Background = sel ? Tint(Gold, 50) : Card, BorderBrush = sel ? Gold : Tint(Muted, 80), BorderThickness = new Thickness(sel ? 1.6 : 1), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = tip, Child = sp, Tag = "look.tile." + id };
+                    b.MouseEnter += delegate { hover(); }; b.MouseLeave += delegate { lkUnpreview(); }; b.MouseLeftButtonUp += (s0, e0) => { click(); e0.Handled = true; }; lkTiles[id] = b; return b;
+                };
+                Func<string, KeystoneSeasonPalette, FrameworkElement> lkThumbScene = (sc, pal) => { var v = new KeystoneSceneView { FixW = 170, FixH = 62, Width = 170, Height = 62, Seed = 7, Tag = "look.thumb" }; v.Set(sc, pal); return v; };
+                var lkThumbCache = new Dictionary<string, ImageSource>(StringComparer.OrdinalIgnoreCase); Func<string, FrameworkElement> lkThumbFile = f => { ImageSource bm; if (!lkThumbCache.TryGetValue(f, out bm) || bm == null) { bm = LookBitmap(f, 240); lkThumbCache[f] = bm; }   /* decoded once per gallery session of this window */ return bm == null ? (FrameworkElement)new TextBlock { Text = "?", Foreground = Muted, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } : new System.Windows.Controls.Image { Source = bm, Stretch = Stretch.UniformToFill, IsHitTestVisible = false }; };
+                lkGalBuild = delegate
+                {
+                    var ny = nyNow(); string seasonNow = KeystoneSeasons.Of(ny); var cur = lkChosen ?? look; var sp = new StackPanel();
+                    var head = new DockPanel { Margin = new Thickness(0, 0, 0, 6) }; var xb = lkChip("↺ BACK", Card, "undo everything since the gallery opened (Esc)", null, () => lkClose(false)); DockPanel.SetDock(xb, Dock.Right); head.Children.Add(xb);
+                    var kb = lkChip("✓ KEEP", Green, "keep this look for this window (remembered)", null, () => lkClose(true)); kb.Tag = "look.keep"; DockPanel.SetDock(kb, Dock.Right); head.Children.Add(kb);
+                    head.Children.Add(new TextBlock { Text = "🎨 LOOK — " + (liveWindow ? "● LIVE TRADING" : "BACKTEST STUDIO") + " • display only, never over the candles", Foreground = Gold, FontSize = 15, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
+                    sp.Children.Add(head);
+                    lkGalNote = new TextBlock { Text = lkNote != "" ? lkNote : "point at a tile = live preview • click = choose • ✓ KEEP saves • ↺ BACK / Esc undoes", Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8), Tag = "look.note" }; sp.Children.Add(lkGalNote);
+                    Func<string, TextBlock> sec = t => new TextBlock { Text = t, Foreground = Orchid, FontSize = 12, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 6, 0, 4) };
+                    sp.Children.Add(sec("🍂 SEASON ACCENTS (title bar, glow line, window frame, button edges — P/L colours and candles never change)"));
+                    var sr = new WrapPanel();
+                    foreach (var m in KeystoneLookSettings.SeasonModes)
+                    {
+                        string mm = m; string lab = m == "AUTO" ? "AUTO (" + KeystoneSeasons.Icon(seasonNow) + " " + seasonNow + " now)" : m == "OFF" ? "OFF (the window's own colours)" : KeystoneSeasons.Icon(m) + " " + m;
+                        sr.Children.Add(lkChip((cur.Season == m ? "✓ " : "") + lab, m == "OFF" ? Card : (SolidColorBrush)LookSolid(KeystoneSeasons.Palette(m == "AUTO" ? seasonNow : m).Accent), "season by the New York date (northern hemisphere): spring Mar 20 • summer Jun 21 • fall Sep 22 • winter Dec 21", () => lkPreview(t => t.Season = mm), () => lkChoose(t => t.Season = mm)));
+                    }
+                    sp.Children.Add(sr);
+                    sp.Children.Add(sec("📷 PHOTO TEMPLATES (real photos, free licence — downloaded once when you click one; each with its matching chart template)"));
+                    var pr0 = new WrapPanel();
+                    foreach (var ph0 in KeystoneLookCatalog.Photos)
+                    {
+                        var ph = ph0; string cf = KeystoneLookCatalog.CacheFile(lookDir, ph); bool have = File.Exists(cf);
+                        FrameworkElement thumb = have ? lkThumbFile(cf) : lkThumbScene(ph.Fallback, ph.Palette());
+                        if (!have) { var g0 = new Grid(); g0.Children.Add(thumb); g0.Children.Add(new Border { Background = Tint(Bg, 150), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, CornerRadius = new CornerRadius(4), Padding = new Thickness(4, 0, 4, 1), Margin = new Thickness(0, 0, 3, 3), Child = new TextBlock { Text = lkBusy.Contains(ph.Id) ? "⤓ downloading…" : "⤓ click to get it", Foreground = Text, FontSize = 9.5 } }); thumb = g0; }
+                        pr0.Children.Add(lkTile("PHOTO:" + ph.Id, ph.Name, thumb, ph.Name + " — " + ph.Mood + "\n" + ph.Credit + "\nchart template: " + ph.ChartTheme + (ph.Anim != "" ? " • fits " + KeystoneParticles.Label(ph.Anim) : "") + "\n" + (have ? "saved on this PC" : "not downloaded yet: point = the drawn " + KeystoneScene.Label(ph.Fallback) + ", click = download it once (" + lookDir + ")"),
+                            () => lkPreview(t => t.Scene = "PHOTO:" + ph.Id),
+                            () =>
+                            {
+                                if (File.Exists(KeystoneLookCatalog.CacheFile(lookDir, ph))) { lkChoose(t => t.Scene = "PHOTO:" + ph.Id); return; }
+                                if (lkGalNote != null) lkGalNote.Text = "⤓ downloading " + ph.Name + " once (" + ph.Credit + ")…";
+                                lkChoose(t => t.Scene = "PHOTO:" + ph.Id);
+                                lkFetch(ph, err => { if (err != "") lkNote = "📷 " + ph.Name.Substring(2).Trim() + ": " + err + " — the drawn " + KeystoneScene.Label(ph.Fallback) + " instead"; if (look.Scene == "PHOTO:" + ph.Id || (lkChosen != null && lkChosen.Scene == "PHOTO:" + ph.Id)) { lookApply(); if (err != "") lkNote = "📷 " + ph.Name.Substring(2).Trim() + ": " + err + " — the drawn " + KeystoneScene.Label(ph.Fallback) + " instead"; } if (lkGallery.Visibility == Visibility.Visible && lkGalBuild != null) lkGalBuild(); lookLine(); });
+                            }));
+                    }
+                    sp.Children.Add(pr0);
+                    var mt = new CheckBox { Content = "photo templates also switch the chart template to their match (↺ BACK restores yours)", IsChecked = lkMatchTheme, Foreground = Muted, FontSize = 11, Margin = new Thickness(0, 0, 0, 4) };
+                    mt.Click += delegate { lkMatchTheme = mt.IsChecked == true; try { var c0 = ReadStudioWorkspace(); c0["look." + lookWin + ".matchtheme"] = lkMatchTheme ? "1" : "0"; WriteStudioWorkspace(c0); ws["look." + lookWin + ".matchtheme"] = lkMatchTheme ? "1" : "0"; } catch { } };
+                    sp.Children.Add(mt);
+                    sp.Children.Add(sec("✏ DRAWN SCENES (made in code, no files — light, always available)"));
+                    var dr = new WrapPanel(); var palNow = KeystoneSeasons.Palette(cur.SeasonNow(ny));
+                    dr.Children.Add(lkTile("MATCH", "✏ Match the season", lkThumbScene(KeystoneSeasons.DefaultScene(cur.SeasonNow(ny) == "" ? seasonNow : cur.SeasonNow(ny)), cur.SeasonNow(ny) == "" ? KeystoneSeasons.Palette(seasonNow) : palNow), "the season's own scene (fall = forest, winter = snowy peaks, spring = waterfall, summer = ocean sunset)", () => lkPreview(t => t.Scene = "MATCH"), () => lkChoose(t => t.Scene = "MATCH")));
+                    foreach (var sc0 in KeystoneScene.Names) { var sc = sc0; string nm = "✏ " + KeystoneScene.Label(sc).Substring(KeystoneScene.Label(sc).IndexOf(' ') + 1).ToLowerInvariant(); nm = "✏ " + char.ToUpperInvariant(nm[2]) + nm.Substring(3) + " (drawn)"; dr.Children.Add(lkTile(sc, nm, lkThumbScene(sc, cur.SeasonNow(ny) == "" ? KeystoneSeasons.Palette("") : palNow), KeystoneScene.Label(sc) + " — drawn in code in the season's colours", () => lkPreview(t => t.Scene = sc), () => lkChoose(t => t.Scene = sc))); }
+                    dr.Children.Add(lkTile("NONE", "No scene", new Border { Background = Bg }, "only the season accent (or nothing when the season is OFF)", () => lkPreview(t => t.Scene = "NONE"), () => lkChoose(t => t.Scene = "NONE")));
+                    sp.Children.Add(dr);
+                    sp.Children.Add(sec("🖼 YOUR OWN PICTURE / VIDEO (" + lookDir + ")"));
+                    var own = new WrapPanel();
+                    Action<string> useFile = f => { string k0 = KeystoneLookFiles.KindOf(f); if (k0 == "") { if (lkGalNote != null) lkGalNote.Text = KeystoneLookFiles.Problem(f); return; } lkChoose(t => { t.Scene = k0; t.File = f; }); };
+                    own.Children.Add(lkChip("📷 PICK A PICTURE…", Blue, "a jpg / png / bmp from this PC (decoded once at the screen width)", null, () => { try { var dlg = new Microsoft.Win32.OpenFileDialog { Filter = "Pictures (*.jpg;*.jpeg;*.png;*.bmp)|*.jpg;*.jpeg;*.png;*.bmp", Title = "📷 MY PICTURE" }; if (dlg.ShowDialog() == true) useFile(dlg.FileName); } catch { } }));
+                    own.Children.Add(lkChip("🎞 PICK A VIDEO…", Blue, "a short looping mp4 / wmv — muted, paused when the window is minimized / not in front / while you drag the chart (📉 LOW POWER = its first frame)", null, () => { try { var dlg = new Microsoft.Win32.OpenFileDialog { Filter = "Videos (*.mp4;*.wmv)|*.mp4;*.wmv", Title = "🎞 MY VIDEO" }; if (dlg.ShowDialog() == true) useFile(dlg.FileName); } catch { } }));
+                    own.Children.Add(lkChip("📂 OPEN THE FOLDER", Card, "drop your own pictures / videos here — they appear below", null, () => { try { System.Diagnostics.Process.Start(lookDir); } catch { } }));
+                    foreach (var f0 in KeystoneLookFiles.List(lookDir).Where(f => !Path.GetFileName(f).StartsWith("keystone-", StringComparison.OrdinalIgnoreCase)).Take(12))
+                    { var f = f0; string k0 = KeystoneLookFiles.KindOf(f); own.Children.Add(lkChip((k0 == "VIDEO" ? "🎞 " : "📷 ") + Path.GetFileName(f), Card, f, () => lkPreview(t => { t.Scene = k0; t.File = f; }), () => useFile(f))); }
+                    sp.Children.Add(own);
+                    sp.Children.Add(sec("✨ ANIMATION (header band only — ≤ 30 fps, ≤ 150 particles, paused when minimized / not in front / while you drag)"));
+                    var ar = new WrapPanel();
+                    foreach (var a0 in KeystoneLookSettings.AnimModes) { var a = a0; string lab = a == "OFF" ? "OFF" : a == "MATCH" ? "MATCH THE SCENE / SEASON" : KeystoneParticles.Label(a); ar.Children.Add(lkChip((cur.Anim == a ? "✓ " : "") + lab, a == "OFF" ? Card : Cyan, "light particles in the title band only — never over the chart", () => lkPreview(t => t.Anim = a), () => lkChoose(t => t.Anim = a))); }
+                    ar.Children.Add(lkChip((cur.Reduce ? "☑" : "☐") + " 🕊 REDUCE MOTION", Card, "half the particles, half the speed, 15 fps", null, () => lkChoose(t => t.Reduce = !t.Reduce)));
+                    ar.Children.Add(lkChip((cur.LowPower ? "☑" : "☐") + " 📉 LOW POWER", Card, "a video shows its first frame only (no decoding)", null, () => lkChoose(t => t.LowPower = !t.LowPower)));
+                    sp.Children.Add(ar);
+                    sp.Children.Add(sec("📐 PLACEMENT"));
+                    var pl = new WrapPanel();
+                    pl.Children.Add(lkChip((cur.Place == "AROUND" ? "✓ " : "") + "AROUND THE CHART (title band + window frame)", Card, "the default: never over the candles", () => lkPreview(t => t.Place = "AROUND"), () => lkChoose(t => t.Place = "AROUND")));
+                    pl.Children.Add(lkChip((cur.Place == "FAINT" ? "✓ " : "") + "FAINT BEHIND THE CHART (5 %)", Card, "a still 5 % veil of the scene / picture over the plot — never animated, never a video, the mouse goes through it", () => lkPreview(t => t.Place = "FAINT"), () => lkChoose(t => t.Place = "FAINT")));
+                    sp.Children.Add(pl);
+                    sp.Children.Add(sec("💬 HEADER LINE (one line, read-only)"));
+                    var qr = new WrapPanel();
+                    foreach (var q0 in KeystoneLookSettings.QuoteModes) { var q = q0; string lab = q == "BOTH" ? "QUOTES + REMINDERS" : q == "REMINDERS" ? "REMINDERS ONLY" : q == "QUOTES" ? "QUOTES ONLY" : "OFF"; qr.Children.Add(lkChip((cur.Quotes == q ? "✓ " : "") + lab, Card, "reminders first: a lock, the floor close, the day loss, the 16:54 NY close; then a season quote every 3 h", () => lkPreview(t => t.Quotes = q), () => lkChoose(t => t.Quotes = q))); }
+                    if (cur.QuotesHiddenOn(ny)) qr.Children.Add(lkChip("↺ show today's quotes again", Card, "you hid them with ✕", null, () => lkChoose(t => t.HideDay = "")));
+                    sp.Children.Add(qr);
+                    var phc = cur.Photo; if (phc != null) sp.Children.Add(new TextBlock { Text = phc.Name + " • " + phc.Credit, Foreground = Muted, FontSize = 10, Margin = new Thickness(0, 6, 0, 0), TextWrapping = TextWrapping.Wrap });
+                    lkGallery.Child = new ScrollViewer { Content = sp, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+                };
+                lookOpenH = delegate
+                {
+                    if (lkGallery.Visibility == Visibility.Visible) { lkClose(false); return; }
+                    lkSnap = lkClone(look); lkChosen = lkClone(look); lkSnapTheme = themeIndex; lkChosenTheme = themeIndex; lkGalBuild(); lkGallery.Visibility = Visibility.Visible;
+                };
+                w.PreviewKeyDown += (s0, e0) => { if (lkGallery.Visibility == Visibility.Visible && e0.Key == Key.Escape) { lkClose(false); e0.Handled = true; } };
+                studioLook = cmd =>
+                {   /* TEST-ONLY: the look of this window — STATE / SET k=v / OPEN / HOVER id / LEAVE / CLICK id / KEEP / BACK / TICKS n / RENDER / LINE / VEILS / FILE path */
+                    var c = (cmd ?? "").Trim(); var cu = c.ToUpperInvariant();
+                    if (cu.StartsWith("SET ")) { var kv = c.Substring(4).Split(new[] { '=' }, 2); var d = look.Write(); d[kv[0].Trim().ToLowerInvariant()] = kv.Length > 1 ? kv[1].Trim() : ""; look = KeystoneLookSettings.Read(k => d.ContainsKey(k) ? d[k] : ""); lookSave(look); lookApply(); }
+                    else if (cu == "OPEN") lookOpenH();
+                    else if (cu.StartsWith("HOVER ")) { var id = c.Substring(6).Trim(); if (lkTiles.ContainsKey(id)) lkPreview(t => t.Scene = id); else return "no tile " + id; }
+                    else if (cu == "LEAVE") lkUnpreview();
+                    else if (cu.StartsWith("CLICK ")) { var id = c.Substring(6).Trim(); if (!lkTiles.ContainsKey(id)) return "no tile " + id; lkChoose(t => t.Scene = id); }   /* a photo not saved yet stays on its drawn fallback (the test never downloads) */
+                    else if (cu == "KEEP") lkClose(true);
+                    else if (cu == "BACK") lkClose(false);
+                    else if (cu.StartsWith("TICKS ")) { int n0 = ParseStudioInt(c.Substring(6), 1); for (int i = 0; i < n0; i++) { lkLast = lkClock.Elapsed.TotalSeconds - 1 / 30.0; if (lkTimer.IsEnabled) lkStep(); } }
+                    else if (cu.StartsWith("BENCH ")) { int n0 = ParseStudioInt(c.Substring(6), 300); var sw0 = System.Diagnostics.Stopwatch.StartNew(); for (int i = 0; i < n0; i++) { lkFx.Sim.Step(1 / 30.0); var dc0 = new System.Windows.Media.DrawingGroup().Open(); lkFx.RenderTo(dc0); dc0.Close(); } return (sw0.Elapsed.TotalMilliseconds / Math.Max(1, n0)).ToString("0.0000", CultureInfo.InvariantCulture); }   /* ms per frame: step + building the frame's drawing list */
+                    else if (cu == "TILES") return string.Join(",", lkTiles.Keys);
+                    else if (cu == "GALLERYTREE") return lkGallery.Child == null ? "" : "ok";
+                    else if (cu == "RENDER") { var dc = new System.Windows.Media.DrawingGroup().Open(); lkFx.RenderTo(dc); dc.Close(); var g = lkBandScene.Build(1600, 34); return g == null ? "0" : g.Children.Count.ToString(CultureInfo.InvariantCulture); }
+                    else if (cu.StartsWith("FILE ")) { look.File = c.Substring(5).Trim(); look.Scene = KeystoneLookFiles.KindOf(look.File) == "" ? "PICTURE" : KeystoneLookFiles.KindOf(look.File); lookApply(); }
+                    else if (cu == "LINE") return lkQuoteText.Text + "|" + (kw != null && kw.QuoteHost != null ? kw.QuoteHost.Visibility.ToString() : "");
+                    else if (cu == "DIR") return lookDir;
+                    var vis = lookVeils.Count(v => v.Visibility == Visibility.Visible);
+                    return "season=" + lkSeason + ";scene=" + lkScene + ";file=" + lkFileKind + ";anim=" + lkAnim + ";n=" + lkFx.Sim.N + ";timer=" + (lkTimer.IsEnabled ? 1 : 0) + ";frames=" + lkFx.Frames + ";veils=" + vis + "/" + lookVeils.Count + ";place=" + look.Place + ";gallery=" + (lkGallery.Visibility == Visibility.Visible ? 1 : 0) + ";theme=" + themes[themeIndex].Name + ";note=" + lkNote + ";chosen=" + (lkChosen != null ? lkChosen.Scene : "") + ";look=" + look.Scene + ";builds=" + lkBandScene.Builds;
+                };
+                lookApply();
             }
             renderInfo();
             w.Show();

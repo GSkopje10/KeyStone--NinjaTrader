@@ -1044,6 +1044,19 @@ public static class UiSmokeTest
                         string ln = tb("LIB"); var tlw = (System.Windows.Window)F("tickLibWindow"); if (tlw == null) throw new Exception("🛠 the banner's 📥 TICK LIBRARY did not open the library"); tlw.Close();
                         Console.WriteLine("      🛠 GET TICKS banner: " + bl + " • GET → " + gn);
                     }
+                    var lookH = (Func<string, string>)F("studioLook"); if (lookH == null) throw new Exception("🍂 no studioLook hook");
+                    foreach (var kv0 in new KeystoneLookSettings().Write()) lookH("SET " + kv0.Key + "=" + kv0.Value);   /* a workspace from an earlier run: back to the 13k defaults (the pure test checks a fresh Read) */
+                    string look0 = lookH("STATE"); var sfB = BindingFlags.Static | BindingFlags.NonPublic; var labT = lab2.GetType();
+                    Func<string> semantic = () => string.Join(",", new[] { "Green", "Red", "CandleUp", "CandleDown", "WinPurple", "LossAmber" }.Select(n => { var b = labT.GetField(n, sfB).GetValue(null) as System.Windows.Media.SolidColorBrush; return n + "=" + b.GetHashCode() + ":" + b.Color.R + "." + b.Color.G + "." + b.Color.B; }));
+                    string sem0 = semantic();
+                    {   /* 🍂 13k defaults: season AUTO (the NY date), the matching DRAWN scene in the header band only, NO animation, nothing on the plot */
+                        string seasonNow = KeystoneSeasons.Of(DateTime.Now);
+                        if (!look0.Contains("season=" + seasonNow) || !look0.Contains("scene=" + KeystoneSeasons.DefaultScene(seasonNow)) || !look0.Contains("anim=;") || !look0.Contains("timer=0") || !look0.Contains("veils=0/") || !look0.Contains("place=AROUND")) throw new Exception("🍂 13k defaults: " + look0);
+                        Console.WriteLine("      🍂 13k defaults: " + look0);
+                    }
+                    /* 🍂 13k: the ✋ 13e / 13h / 13i / 🖐 13j picking + drag tests below run with a scene, ❄ snow AND the faint veil ON (they must not change the order path / the pick) */
+                    lookH("SET scene=AURORA"); lookH("SET anim=SNOW"); lookH("SET place=FAINT");
+                    { string on = lookH("STATE"); if (!on.Contains("anim=SNOW") || !on.Contains("timer=1") || on.Contains("veils=0/")) throw new Exception("🍂 13k scene + snow + faint did not switch on: " + on); }
                     {   /* ✋ 13e (user: "dragging the take profit grabs the yellow profit stop — whatever I hover and click, that's the line we are moving"): a long with a 🔒 profit stop
                            a few px from its take profit — at every cursor point the line / label the hover lights is the one the click path grabs; off the labels the NEAREST line */
                         var lp = (Func<string, string>)F("studioLinePick"); if (lp == null) throw new Exception("✋ no studioLinePick hook");
@@ -1237,6 +1250,54 @@ public static class UiSmokeTest
                             Console.WriteLine("      🖐 13j: a click = the ✏ price box inside the chart (no window), the next press drags at once, ✓ sets the price; ✕ = on the release inside it only (the stop asks then), pressed + dragged off = nothing");
                         }
                         finally { lp("CANCELALL"); lp("ADOPT " + wasJ[0] + "," + wasJ[1]); lp("SET " + fieldsJ); lp("5,5"); }
+                    }
+                    {   /* 🍂 13k SEASONS + SCENES + 📷 PHOTOS + ✨ ANIMATION (display only): the picking above ran with them ON; never over the candles, never on the mouse path, never a semantic colour,
+                           never the chart's render path, no window opened by the gallery, no network in the test, nothing sent */
+                        var allEl = FindAll<System.Windows.FrameworkElement>(bt.Content);
+                        var plots = allEl.OfType<System.Windows.Controls.Grid>().Where(g => g.Children.Cast<object>().Any(cc => Convert.ToString((cc as System.Windows.FrameworkElement) == null ? "" : ((System.Windows.FrameworkElement)cc).Tag) == "chart.plot")).ToList();
+                        if (plots.Count == 0) throw new Exception("🍂 no chart plot grid found");
+                        foreach (var g in plots)
+                        {
+                            var kids = g.Children.Cast<System.Windows.FrameworkElement>().ToList(); var tags = kids.Select(k => Convert.ToString(k.Tag)).ToList();
+                            if (tags.Any(t => t.StartsWith("look.") && t != "look.veil")) throw new Exception("🍂 only the veil may sit in a plot: " + string.Join(",", tags));
+                            int iv = tags.IndexOf("look.veil"); if (iv < 0 || iv >= kids.Count - 1 || kids[iv].IsHitTestVisible) throw new Exception("🍂 the veil must sit under the mouse layer and never be hit-testable: " + string.Join(",", tags));
+                            if (kids[iv].Opacity > 0.06 + 1e-9) throw new Exception("🍂 the faint veil must be ≤ 6 %: " + kids[iv].Opacity);
+                        }
+                        var lookEls = allEl.Where(x => Convert.ToString(x.Tag).StartsWith("look.")).ToList(); var interactive = new[] { "look.gallery", "look.chip", "look.tile.", "look.keep", "look.quote.host", "look.quote", "look.quote.x", "look.note", "look.band.host" };
+                        var badHit = lookEls.Where(x => x.IsHitTestVisible && !interactive.Any(t => Convert.ToString(x.Tag).StartsWith(t))).Select(x => Convert.ToString(x.Tag)).ToList(); if (badHit.Count > 0) throw new Exception("🍂 hit-testable look layers: " + string.Join(",", badHit));
+                        if (!lookEls.Any(x => Convert.ToString(x.Tag) == "look.fx") || !lookEls.Any(x => Convert.ToString(x.Tag) == "look.band.scene")) throw new Exception("🍂 the band layers are missing");
+                        // ✨ the animation's frames never touch the chart's render path
+                        bool perfWas = KeystonePerf.On; int uiWas = KeystonePerf.UiThread; KeystonePerf.UiThread = System.Threading.Thread.CurrentThread.ManagedThreadId; KeystonePerf.On = true; KeystonePerf.Reset(); KeystoneArc5MResearchLab.LookForceActive = true; long inv0 = System.Windows.UIElement.TestInvalidations;
+                        lookH("TICKS 90"); var rowsK = KeystonePerf.Rows(); KeystonePerf.On = perfWas; KeystonePerf.UiThread = uiWas; string stK = lookH("STATE");
+                        if (rowsK.Any(rr => rr.Name.Contains("render") || rr.Name.StartsWith("of."))) throw new Exception("🍂 animation frames ran the chart / order flow: " + string.Join(",", rowsK.Select(rr => rr.Name)));
+                        var fxRow = rowsK.FirstOrDefault(rr => rr.Name == "look.fx"); if (fxRow == null || fxRow.Count != 90 || System.Windows.UIElement.TestInvalidations - inv0 != 90) throw new Exception("🍂 90 frames = 90 invalidations of the fx layer only: " + (System.Windows.UIElement.TestInvalidations - inv0) + " • " + stK);
+                        string bench = lookH("BENCH 300"); string rnd = lookH("RENDER"); KeystoneArc5MResearchLab.LookForceActive = false;
+                        // 🎨 semantic colours never change, whatever the season / photo
+                        foreach (var sz in new[] { "FALL", "WINTER", "SPRING", "SUMMER", "OFF", "AUTO" }) { lookH("SET season=" + sz); if (semantic() != sem0) throw new Exception("🍂 season " + sz + " changed a P/L / candle colour"); }
+                        // 🎨 LOOK ▾ gallery: inside the window (no Window shown / dialog), hover = preview, BACK restores the look + the chart template
+                        int shows0 = System.Windows.Window.TestShows, dlg0 = System.Windows.Window.TestDialogs; string before = lookH("STATE");
+                        lookH("OPEN"); string tiles = lookH("TILES"); if (!lookH("STATE").Contains("gallery=1") || System.Windows.Window.TestShows != shows0 || System.Windows.Window.TestDialogs != dlg0) throw new Exception("🍂 the gallery must open INSIDE the window: " + lookH("STATE"));
+                        foreach (var want in KeystoneLookCatalog.Photos.Select(x => "PHOTO:" + x.Id).Concat(KeystoneScene.Names).Concat(new[] { "MATCH", "NONE" })) if (!tiles.Split(',').Contains(want)) throw new Exception("🍂 missing tile " + want + ": " + tiles);
+                        lookH("HOVER MOUNTAINS"); if (!lookH("STATE").Contains("look=MOUNTAINS") || !lookH("STATE").Contains("chosen=AURORA")) throw new Exception("🍂 hover = a preview only: " + lookH("STATE"));
+                        lookH("LEAVE"); if (!lookH("STATE").Contains("look=AURORA")) throw new Exception("🍂 leaving the tile restores: " + lookH("STATE"));
+                        string th0 = before.Split(';').First(q => q.StartsWith("theme="));
+                        lookH("CLICK PHOTO:SNOWNIGHT"); string ph1 = lookH("STATE");
+                        if (!ph1.Contains("look=PHOTO:SNOWNIGHT") || !ph1.Contains("scene=SNOWPEAKS") || !ph1.Contains("not downloaded") || !ph1.Contains("theme=MIDNIGHT VELVET")) throw new Exception("🍂 a photo not saved yet = its drawn fallback + a note + the matching chart template (no download in the test): " + ph1);
+                        lookH("BACK"); string back = lookH("STATE"); if (!back.Contains("gallery=0") || !back.Contains(th0) || !back.Contains("look=AURORA")) throw new Exception("🍂 ↺ BACK must restore the look + the chart template: " + back);
+                        // 📷 / 🎞 your own files: a missing file = a one-line note, never an exception; a video is muted and paused in 📉 LOW POWER
+                        var tmpD = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ks-look-" + Guid.NewGuid().ToString("N")); System.IO.Directory.CreateDirectory(tmpD);
+                        string pic = System.IO.Path.Combine(tmpD, "lake.png"), vid = System.IO.Path.Combine(tmpD, "falls.mp4"); System.IO.File.WriteAllBytes(pic, new byte[4000]); System.IO.File.WriteAllBytes(vid, new byte[4000]);
+                        lookH("FILE " + System.IO.Path.Combine(tmpD, "gone.jpg")); string gm1 = lookH("STATE"); if (!gm1.Contains("the file is gone") || !gm1.Contains("file=;")) throw new Exception("🍂 a missing picture: " + gm1);
+                        lookH("FILE " + pic); if (!lookH("STATE").Contains("file=PICTURE")) throw new Exception("🍂 MY PICTURE: " + lookH("STATE"));
+                        lookH("SET lowpower=1"); int pz0 = System.Windows.Controls.MediaElement.TestPauses; lookH("FILE " + vid); string vd1 = lookH("STATE");
+                        var me = FindAll<System.Windows.Controls.MediaElement>(bt.Content).FirstOrDefault(); if (!vd1.Contains("file=VIDEO") || me == null || !me.IsMuted || me.IsHitTestVisible || System.Windows.Controls.MediaElement.TestPauses <= pz0) throw new Exception("🍂 MY VIDEO: muted, never hit-testable, paused in LOW POWER: " + vd1);
+                        if (!lookH("STATE").Contains("veils=0/")) throw new Exception("🍂 a video must never be drawn inside the plot: " + lookH("STATE"));
+                        lookH("SET scene=MATCH"); lookH("SET anim=OFF"); lookH("SET place=AROUND"); lookH("SET lowpower=0"); lookH("SET season=AUTO"); try { System.IO.Directory.Delete(tmpD, true); } catch { }
+                        string ln = lookH("LINE"); if (!ln.EndsWith("|Visible") || ln.Length < 12) throw new Exception("🍂 the header quote line: " + ln);
+                        string fin = lookH("STATE"); if (!fin.Contains("anim=;") || !fin.Contains("timer=0") || !fin.Contains("veils=0/")) throw new Exception("🍂 back to the defaults: " + fin);
+                        if (!System.IO.File.ReadAllText(System.IO.Path.Combine((string)labT.GetMethod("StudioFolder", sfB).Invoke(null, null), "Workspace.txt")).Contains("look.bt.anim=OFF")) throw new Exception("🍂 the look is remembered per window (look.bt.*)");
+                        if ((int)nbMade.GetValue(null) != made0) throw new Exception("🍂 the look built a NinjaBroker");
+                        Console.WriteLine("      🍂 13k: ✋ / 🖐 picking passed with AURORA + ❄ snow + the 5 % veil ON • veil under the mouse layer, ≤ 6 % • 90 frames = 90 fx invalidations, 0 chart renders • a frame (step + drawing list) " + bench + " ms • scene layers " + rnd + " • P/L / candle colours unchanged in every season • gallery inside the window, hover / leave / BACK • photo fallback + note + chart match • missing file / picture / muted video in LOW POWER • quote: " + ln);
                     }
                     var desk = (Func<string, string>)F("studioOfDesk"); if (desk == null) throw new Exception("no ORDERFLOW desk hook");
                     {   /* 🧼 11y (user: "I will stick to my candlestick strategies"): the 📈 CHART view shows NO order flow by default (decision, toasts, setup lines, zones, events, battle map) */

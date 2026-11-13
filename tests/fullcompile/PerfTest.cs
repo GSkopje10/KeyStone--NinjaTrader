@@ -100,6 +100,21 @@ public static class PerfTest
         if (!d.State.Contains("MNQ=on") || !d.State.Contains("MGC=off")) { Console.WriteLine("FAIL  the chip must run the engine for the chart on screen only"); fails++; }
         eng("CHIP 0"); eng("KILL 1"); eng("MASTER 1"); eng("CHIP 1"); var e = Run("E. ⚡ ORDER FLOW ENGINE OFF (hard kill) with the switch + chip asked", Math.Min(secs, 4), 30, timers); Print(e);
         if (e.OfWork != 0 || !e.State.Contains("MNQ=off")) { Console.WriteLine("FAIL  the hard kill must stop everything"); fails++; }
+        // 🍂 13k: the LOOK — a drawn scene + ❄ snow at 30 fps in the header band (order flow off): its own timer only, never the chart's render path
+        eng("KILL 0"); eng("CHIP 0"); eng("MASTER 0"); var lookF = (Func<string, string>)F("studioLook"); KeystoneArc5MResearchLab.LookForceActive = true;
+        lookF("SET scene=AURORA"); lookF("SET anim=SNOW");
+        var a2 = Run("A2. defaults again (baseline for F)", Math.Min(secs, 4), 30, timers);
+        var f = Run("F. 🍂 13k LOOK: drawn scene + ❄ SNOW animation at 30 fps (order flow off)", secs, 30, timers); Print(f);
+        Func<Result, string, double> rowMs = (r, n) => { var x = r.Rows.FirstOrDefault(q => q.Name == n); return x == null ? 0 : KeystonePerf.Ms(x.Ticks) / r.Secs; };
+        Func<Result, string, double> rowN = (r, n) => { var x = r.Rows.FirstOrDefault(q => q.Name == n); return x == null ? 0 : x.Count / r.Secs; };
+        double fxMs = rowMs(f, "look.fx"), fxN = rowN(f, "look.fx"), frameMs = double.Parse(lookF("BENCH 600"), System.Globalization.CultureInfo.InvariantCulture);
+        Console.WriteLine("PERF  🍂 LOOK: timer " + fxN.ToString("0.0") + " frames/s, " + fxMs.ToString("0.00") + " ms/s on the UI thread (step + invalidate) • one frame's drawing list " + frameMs.ToString("0.000") + " ms → ≈ " + (fxMs + frameMs * fxN).ToString("0.00") + " ms/s in all (budget 3 ms/s) • ui.render " + rowN(a2, "ui.render").ToString("0.0") + "/s without vs " + rowN(f, "ui.render").ToString("0.0") + "/s with the look • UI busy " + a2.UiMsPerSec.ToString("0.0") + " → " + f.UiMsPerSec.ToString("0.0") + " ms/s");
+        if (fxN > 31.5) { Console.WriteLine("FAIL  the look must stay ≤ 30 fps (" + fxN.ToString("0.0") + ")"); fails++; }
+        if (fxMs + frameMs * fxN > 3) { Console.WriteLine("FAIL  the look over its 3 ms/s budget: " + (fxMs + frameMs * fxN).ToString("0.00") + " ms/s"); fails++; }
+        if (f.Rows.Any(r => r.Name.StartsWith("look.") && r.Name != "look.fx" && r.Name != "look.quote" && r.Name != "look.apply")) { Console.WriteLine("FAIL  unexpected look work"); fails++; }
+        if (f.OfWork != 0) { Console.WriteLine("FAIL  the look must not wake the order-flow engine"); fails++; }
+        lookF("SET anim=OFF"); lookF("SET scene=MATCH"); KeystoneArc5MResearchLab.LookForceActive = false;
+        var f0 = Run("F0. 🍂 animation OFF again (the default): no look frames", Math.Min(secs, 3), 30, timers); if (rowN(f0, "look.fx") > 0.01) { Console.WriteLine("FAIL  the look timer must stop when the animation is OFF"); fails++; }
         Console.WriteLine("SUMMARY  B open tab: OF UI " + b.OfUiMsPerSec.ToString("0.0") + " ms/s (longest " + b.MaxOfBlock.ToString("0.0") + " ms) • D chart chip: OF UI " + d.OfUiMsPerSec.ToString("0.0") + " ms/s (longest " + d.MaxOfBlock.ToString("0.0") + " ms) • A / C / E idle: " + a.OfWork + " / " + c.OfWork + " / " + e.OfWork + " work units");
         bool strict = Environment.GetEnvironmentVariable("PERF_STRICT") == "1";
         foreach (var r in new[] { b, d }) if (r.OfUiMsPerSec > 25 || r.MaxOfBlock > 50) { Console.WriteLine((strict ? "FAIL" : "WARN") + "  " + r.Name.Substring(0, 2) + " over budget: " + r.OfUiMsPerSec.ToString("0.0") + " ms/s, longest " + r.MaxOfBlock.ToString("0.0") + " ms (budget 25 ms/s, 50 ms)"); if (strict) fails++; }

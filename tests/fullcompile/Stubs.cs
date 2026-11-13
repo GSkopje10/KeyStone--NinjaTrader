@@ -58,10 +58,10 @@ namespace System.Windows
     public class Setter { public Setter() { } public Setter(DependencyProperty p, object v) { } public Setter(DependencyProperty p, object v, string target) { } }
     public class Trigger { public DependencyProperty Property { get; set; } public object Value { get; set; } public List<Setter> Setters = new List<Setter>(); }
     public class TemplateBindingExtension { public TemplateBindingExtension(DependencyProperty p) { } }
-    public class FrameworkElementFactory { public FrameworkElementFactory(Type t) { } public FrameworkElementFactory(Type t, string name) { } public void SetValue(DependencyProperty p, object v) { } public void AppendChild(FrameworkElementFactory c) { } }
+    public class FrameworkElementFactory { public FrameworkElementFactory(Type t) { } public FrameworkElementFactory(Type t, string name) { } public void SetValue(DependencyProperty p, object v) { } public void SetResourceReference(DependencyProperty p, object name) { } public void AppendChild(FrameworkElementFactory c) { } }
     public class FrameworkTemplate { public FrameworkElementFactory VisualTree { get; set; } public List<Trigger> Triggers = new List<Trigger>(); public void Seal() { } }
     public class Style { public Style() { } public Style(Type t) { } public List<Setter> Setters = new List<Setter>(); }
-    public class ResourceDictionary : Dictionary<object, object> { }
+    public class ResourceDictionary : Dictionary<object, object> { public bool Contains(object k) { return ContainsKey(k); } }
     public class UIElement : DependencyObject
     { public static readonly DependencyProperty IsMouseOverProperty = new DependencyProperty(), IsEnabledProperty = new DependencyProperty(), EffectProperty = new DependencyProperty(); 
         public void Measure(Size available) { } public Size DesiredSize { get { return new Size(0, 0); } } public Point PointToScreen(Point p) { return p; }
@@ -88,7 +88,9 @@ namespace System.Windows
         public void RemoveHandler(RoutedEvent e, Delegate h) { }
         public bool CaptureMouse() { return true; }
         public void ReleaseMouseCapture() { }
-        public void InvalidateVisual() { }
+        public void InvalidateVisual() { TestInvalidations++; } public static long TestInvalidations;   /* 🍂 13k: counted (the look's frames) */
+        protected virtual void OnRender(System.Windows.Media.DrawingContext dc) { } public void TestRender(System.Windows.Media.DrawingContext dc) { OnRender(dc); }   /* 🍂 13k: the stand-in calls OnRender only from tests */
+        public System.Windows.Media.CacheMode CacheMode { get; set; }
         public void UpdateLayout() { }
         public void BeginAnimation(DependencyProperty p, System.Windows.Media.Animation.AnimationTimeline a) { }
         public bool IsKeyboardFocusWithin { get { return false; } }
@@ -180,7 +182,7 @@ namespace System.Windows
     }
     public static class SystemParameters { public static double PrimaryScreenWidth { get { return 1920; } } public static double PrimaryScreenHeight { get { return 1080; } } public static Rect WorkArea { get { return new Rect(); } } public static double MinimumHorizontalDragDistance { get { return 4; } } public static double MinimumVerticalDragDistance { get { return 4; } } }
     public static class Clipboard { public static void SetText(string s) { } }
-    public class Application { public WindowCollection Windows { get { return new WindowCollection(); } } public static Application Current { get { return null; } } public System.Windows.Threading.Dispatcher Dispatcher { get { return null; } } public Window MainWindow { get; set; } public object TryFindResource(object key) { return null; } public object FindResource(object key) { return null; } }
+    public class Application { public WindowCollection Windows { get { return new WindowCollection(); } } public static Application Current { get { return null; } } public System.Windows.Threading.Dispatcher Dispatcher { get { return null; } } public Window MainWindow { get; set; } public object TryFindResource(object key) { return null; } public object FindResource(object key) { return null; } public ResourceDictionary Resources { get; set; } }
 }
 
 namespace System.Windows.Media.Effects { public class Effect { } public class DropShadowEffect : Effect { public double BlurRadius { get; set; } public double ShadowDepth { get; set; } public double Opacity { get; set; } public System.Windows.Media.Color Color { get; set; } public double Direction { get; set; } } }
@@ -223,6 +225,32 @@ namespace System.Windows.Media
     public class ImageSource { }
     public class Pen : Freezable { public Pen() { } public Pen(Brush b, double t) { } }
     public class Drawing : Freezable { }
+    /* 🍂 13k stand-ins: the look's drawings (scene layers, particles) */
+    public abstract class CacheMode : Freezable { }
+    public class BitmapCache : CacheMode { public double RenderAtScale { get; set; } public bool SnapsToDevicePixels { get; set; } }
+    public class DrawingCollection : List<Drawing> { }
+    public class DrawingGroup : Drawing { public DrawingCollection Children { get; set; } = new DrawingCollection(); public double Opacity { get; set; } public DrawingContext Open() { return new DrawingContext(); } }
+    public class DrawingContext : IDisposable
+    {
+        internal DrawingContext() { } public static long TestCalls;
+        public void DrawEllipse(Brush b, Pen p, System.Windows.Point c, double rx, double ry) { TestCalls++; } public void DrawLine(Pen p, System.Windows.Point a, System.Windows.Point b) { TestCalls++; }
+        public void DrawRectangle(Brush b, Pen p, System.Windows.Rect r) { TestCalls++; } public void DrawGeometry(Brush b, Pen p, Geometry g) { TestCalls++; } public void DrawDrawing(Drawing d) { TestCalls++; }
+        public void PushOpacity(double o) { } public void PushTransform(Transform t) { } public void Pop() { } public void Close() { } public void Dispose() { }
+        public static DrawingContext TestNew() { return new DrawingContext(); }
+    }
+    public class StreamGeometryContext : IDisposable { public void BeginFigure(System.Windows.Point p, bool filled, bool closed) { } public void PolyLineTo(IList<System.Windows.Point> pts, bool stroked, bool smooth) { } public void LineTo(System.Windows.Point p, bool stroked, bool smooth) { } public void Close() { } public void Dispose() { } }
+    public class StreamGeometry : Geometry { public StreamGeometryContext Open() { return new StreamGeometryContext(); } public FillRule FillRule { get; set; } }
+    public enum FillRule { EvenOdd, Nonzero }
+    public class EllipseGeometry : Geometry { public EllipseGeometry() { } public EllipseGeometry(System.Windows.Point c, double rx, double ry) { } }
+    public class LineGeometry : Geometry { public LineGeometry() { } public LineGeometry(System.Windows.Point a, System.Windows.Point b) { } }
+    public class GeometryCollection : List<Geometry> { }
+    public class GeometryGroup : Geometry { public GeometryCollection Children { get; set; } = new GeometryCollection(); public FillRule FillRule { get; set; } }
+    public class RadialGradientBrush : Brush { public RadialGradientBrush() { } public GradientStopCollection GradientStops { get; set; } = new GradientStopCollection(); public System.Windows.Point Center { get; set; } public System.Windows.Point GradientOrigin { get; set; } public double RadiusX { get; set; } public double RadiusY { get; set; } }
+    public enum AlignmentX { Left, Center, Right } public enum AlignmentY { Top, Center, Bottom }
+    public abstract class TileBrush : Brush { public Stretch Stretch { get; set; } public System.Windows.Rect Viewbox { get; set; } public BrushMappingMode ViewboxUnits { get; set; } public AlignmentX AlignmentX { get; set; } public AlignmentY AlignmentY { get; set; } }
+    public class ImageBrush : TileBrush { public ImageBrush() { } public ImageBrush(ImageSource s) { ImageSource = s; } public ImageSource ImageSource { get; set; } }
+    public class VisualBrush : TileBrush { public VisualBrush() { } public VisualBrush(System.Windows.UIElement v) { Visual = v; } public System.Windows.UIElement Visual { get; set; } }
+    public class DrawingBrush : TileBrush { public DrawingBrush() { } public DrawingBrush(Drawing d) { Drawing = d; } public Drawing Drawing { get; set; } }
     public class GeometryDrawing : Drawing { public GeometryDrawing(Brush b, Pen p, Geometry g) { } }
     public class DrawingImage : ImageSource { public DrawingImage(Drawing d) { } public void Freeze() { } }
     public static class CompositionTarget { public static event EventHandler Rendering; }
@@ -538,4 +566,26 @@ namespace System.Windows.Shell
     }
 }
 
+namespace System.Windows.Media.Imaging
+{
+    public enum BitmapCacheOption { Default, OnDemand, OnLoad, None }
+    [Flags] public enum BitmapCreateOptions { None = 0, PreservePixelFormat = 1, DelayCreation = 2, IgnoreColorProfile = 4, IgnoreImageCache = 8 }
+    public class BitmapSource : System.Windows.Media.ImageSource { public double Width { get { return 1600; } } public double Height { get { return 900; } } public int PixelWidth { get { return 1600; } } public int PixelHeight { get { return 900; } } }
+    public class BitmapImage : BitmapSource
+    {
+        public void BeginInit() { } public void EndInit() { if (UriSource != null && UriSource.IsFile && !System.IO.File.Exists(UriSource.LocalPath)) throw new System.IO.FileNotFoundException(UriSource.LocalPath); }
+        public Uri UriSource { get; set; } public int DecodePixelWidth { get; set; } public int DecodePixelHeight { get; set; } public BitmapCacheOption CacheOption { get; set; } public BitmapCreateOptions CreateOptions { get; set; } public System.IO.Stream StreamSource { get; set; } public void Freeze() { }
+    }
+}
+namespace System.Windows.Controls
+{
+    public enum MediaState { Manual, Play, Close, Pause, Stop }
+    public class ExceptionRoutedEventArgs : System.Windows.RoutedEventArgs { public Exception ErrorException { get { return null; } } }
+    public class MediaElement : System.Windows.FrameworkElement
+    {
+        public Uri Source { get; set; } public bool IsMuted { get; set; } public double Volume { get; set; } public MediaState LoadedBehavior { get; set; } public MediaState UnloadedBehavior { get; set; } public System.Windows.Media.Stretch Stretch { get; set; } public bool ScrubbingEnabled { get; set; } public TimeSpan Position { get; set; }
+        public static int TestPlays, TestPauses; public void Play() { TestPlays++; } public void Pause() { TestPauses++; } public void Stop() { } public void Close() { }
+        public event System.Windows.RoutedEventHandler MediaEnded, MediaOpened; public event EventHandler<ExceptionRoutedEventArgs> MediaFailed;
+    }
+}
 namespace System.Windows.Markup { public static class XamlReader { public static object Parse(string xaml) { return null; } } }

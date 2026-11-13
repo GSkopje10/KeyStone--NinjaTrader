@@ -98,6 +98,9 @@ mono "$here/.build/orb.exe" | tail -1
 rm -f "$here/.build/rev.exe"
 "$root/tools/compile_engine.sh" "$here/.build/rev.exe" "$here/ReversalScoreTests.cs"
 mono "$here/.build/rev.exe" | tail -1
+rm -f "$here/.build/season.exe"
+"$root/tools/compile_engine.sh" "$here/.build/season.exe" "$here/SeasonLookTests.cs"
+mono "$here/.build/season.exe" | tail -1
 rm -f "$here/.build/link.exe"
 "$root/tools/compile_engine.sh" "$here/.build/link.exe" "$here/AccountLinkTests.cs"
 mono "$here/.build/link.exe" | tail -1
