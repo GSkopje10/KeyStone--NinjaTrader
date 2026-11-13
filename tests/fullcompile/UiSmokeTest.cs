@@ -1118,15 +1118,29 @@ public static class UiSmokeTest
                         try
                         {
                             lp("CANCELALL"); lp("ADOPT -1,PRICE"); lp("SET 0|374");
-                            string L = lp("LIST"); var pr = lp("POSRECT").Split(',').Where(v => v != "").Select(v => double.Parse(v, ic)).ToArray(); var es = boxOf(L, "ESTOP"); var pin = boxOf(L, "PINTARGET"); var brk = lineOf(L, "BRACKET");
-                            if (pr.Length != 4 || es == null || brk == null) throw new Exception("✋ 13h a SHORT with no stop needs a + SL pill (ESTOP box) next to its label: " + L + " • label " + string.Join(",", pr));
+                            /* 🫥 13i: NOT hovered (the mouse in the top-left corner) = no position label, no ⚠ NO STOP SET words — the + SL pill (red, tiny ⚠) is still drawn and grabbable */
+                            lp("5,5"); string L = lp("LIST"); var es = boxOf(L, "ESTOP"); var pin = boxOf(L, "PINTARGET"); var brk = lineOf(L, "BRACKET");
+                            if (es == null || brk == null) throw new Exception("✋ 13h a SHORT with no stop needs a + SL pill (ESTOP box) on its line: " + L);
                             double plotW = brk[2];
-                            if (!beside(es, pr) || es[0] < 0 || es[2] > plotW) throw new Exception("✋ 13h the + SL pill must sit right next to the position label, inside the plot: + SL " + string.Join(",", es) + " • label " + string.Join(",", pr) + " • plot " + plotW);
-                            if (lineOf(L, "TARGET") != null || pin == null) throw new Exception("✋ 13h the target 374 pts away must be off-screen and pinned at the edge (PINTARGET): " + L);
+                            if (lp("POSRECT") != "" || lp("TEXTS pos.nostop") != "" || lp("TEXTS pos.label") != "" || lp("TEXTS pos.add") != "+ SL" || lp("TEXTS pos.nostop.mini") != "⚠")
+                                throw new Exception("🫥 13i not hovered: no label / no NO STOP SET words, the + SL pill with its tiny ⚠ stays: rect '" + lp("POSRECT") + "' • badge '" + lp("TEXTS pos.nostop") + "' • pills '" + lp("TEXTS pos.add") + "' • mini '" + lp("TEXTS pos.nostop.mini") + "'");
+                            if (es[0] < plotW / 2 || es[2] > plotW - 26) throw new Exception("🫥 13i the + SL pill sits at the line's right end, before the ✕: " + string.Join(",", es) + " • plot " + plotW);
+                            // hover the LINE (left half of the plot): the label appears on the RIGHT, right next to the + SL pill, overlapping nothing
+                            string hL = lp((plotW * 0.3).ToString("0.##", ic) + "," + brk[0].ToString("0.##", ic)); L = lp("LIST"); es = boxOf(L, "ESTOP"); pin = boxOf(L, "PINTARGET");
+                            var pr = lp("POSRECT").Split(',').Where(v => v != "").Select(v => double.Parse(v, ic)).ToArray();
+                            if (pr.Length != 4) throw new Exception("🫥 13i hovering the entry line must show the position label: " + hL);
+                            if (!beside(es, pr) || pr[0] < plotW / 2 || es[0] < pr[2] || es[2] > plotW) throw new Exception("🫥 13i the label must sit right of the plot's middle, right next to the + SL pill: + SL " + string.Join(",", es) + " • label " + string.Join(",", pr) + " • plot " + plotW);
+                            Func<string, List<double[]>> rectsOf = tg => lp("TAGRECTS " + tg).Split(';').Where(v => v != "").Select(v => { var a = v.Split(',').Select(q => double.Parse(q, ic)).ToArray(); return new[] { a[0], a[1], a[0] + a[2], a[1] + a[3] }; }).ToList();
+                            var nsR = rectsOf("pos.nostop"); var others = rectsOf("pos.add").Concat(rectsOf("pos.pin")).Concat(nsR).ToList();
+                            if (nsR.Count != 1 || nsR[0][2] > pr[0] || others.Any(o => KeystoneLinePick.Overlap(o, pr))) throw new Exception("🫥 13i ⚠ NO STOP SET left of the label, nothing on top of the label: " + string.Join(" / ", others.Select(o => string.Join(",", o))) + " • label " + string.Join(",", pr));
                             string pinT = lp("TEXTS pos.pin"), ns = lp("TEXTS pos.nostop"), adT = lp("TEXTS pos.add");
                             if (!pinT.StartsWith("↓ TP ") || !pinT.Contains("+$") || ns != "⚠ NO STOP SET" || adT != "+ SL") throw new Exception("✋ 13h pin '" + pinT + "' • badge '" + ns + "' • pills '" + adT + "'");
+                            // move onto the LABEL itself (grace): it stays; then away: it goes
+                            lp(ctr(pr)); if (lp("POSRECT") == "") throw new Exception("🫥 13i moving from the line onto the label must keep it shown");
+                            lp("5,5"); if (lp("POSRECT") != "" || lp("TEXTS pos.nostop") != "") throw new Exception("🫥 13i the mouse away: the label + badge go");
                             string hE = lp(ctr(es)), hP = lp(ctr(pin));
                             if (hE != "ESTOP|ESTOP|box" || hP != "PINTARGET|PINTARGET|box") throw new Exception("✋ 13h hovered ≠ grabbed: + SL " + hE + " • pin " + hP);
+                            if (lp("POSRECT") == "") throw new Exception("🫥 13i hovering the pin shows the position label");
                             // the BUY LIMIT under the SHORT: it EXITS the short — said in words, its label grabs it, the hover explains where the protection is
                             lp("LIMITAT 1,1," + (pxH - 15).ToString("0.00", ic)); string L2 = lp("LIST"); var ob = boxOf(L2, "ORDER:0");
                             if (ob == null || L2.Contains("ASTOP#") || L2.Contains("ATARGET#")) throw new Exception("✋ 13h the closing BUY LIMIT: its label is a grab, no after-fill bracket of its own: " + L2);
@@ -1157,7 +1171,7 @@ public static class UiSmokeTest
                             var pair = new[] { Math.Min(aS[0], aT[0]), Math.Min(aS[1], aT[1]), Math.Max(aS[2], aT[2]), Math.Max(aS[3], aT[3]) };
                             if (!beside(pair, lb) || pair[0] < 0 || pair[2] > oln[2] + 28) throw new Exception("✋ 13h + SL / + TP must sit next to their order's label, inside the plot: pills " + string.Join(",", pair) + " • label " + string.Join(",", lb));
                             foreach (var b0 in new[] { aS, aT, lb }) { string h0 = lp(ctr(b0)); var hp0 = h0.Split('|'); if (hp0[0] != hp0[1] || hp0[2] != "box") throw new Exception("✋ 13h hovered ≠ grabbed on the entry order: " + h0); }
-                            Console.WriteLine("      ✋ 13h: + SL beside the position label (dragged out → SL " + fS[0] + "), ↓ TP pinned at the edge (dragged in → TP " + fT[1] + "), ⚠ NO STOP SET, the BUY LIMIT \"closes your SHORT 1\" (label drags it), reverse warning, entry pills next to their label");
+                            Console.WriteLine("      🫥 13i: the position label + ⚠ NO STOP SET only on hover, on the right next to + SL; ✋ 13h: + SL on the position line (dragged out → SL " + fS[0] + "), ↓ TP pinned at the edge (dragged in → TP " + fT[1] + "), ⚠ NO STOP SET, the BUY LIMIT \"closes your SHORT 1\" (label drags it), reverse warning, entry pills next to their label");
                         }
                         finally { lp("CANCELALL"); lp("ADOPT " + wasH[0] + "," + wasH[1]); lp("SET " + fieldsH); lp("5,5"); }
                     }

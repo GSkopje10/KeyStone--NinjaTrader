@@ -410,6 +410,24 @@ public static class ReplayTraderTests
             var xo = tc.Place("LIMIT", 1, 1, 19990); tc.LiveUpdate(B(1, 20000, 20000, 19989, 19989), new DateTime(2026, 3, 10, 9, 31, 0));
             Check(tc.Position == 0, "✋ 13h the closing BUY LIMIT exits the SHORT (flat)", tc.Position.ToString());
         }
+        {   /* 🫥 BUILD 2026-11-13i — the user: "I want this message moved to the right and only be visible when we are hovering the entry": the position label + ⚠ NO STOP SET
+               only while the entry is hovered (the 13e hover on the line / + SL / + TP / pins, the line ± 10 px, or the grace zone of the label shown last frame), right next to
+               the + TP / + SL slots before the ✕ */
+            double plotW = 970, lineY = 300;
+            Check(KeystoneLinePick.SlotX(true, plotW) == 852 && KeystoneLinePick.SlotX(false, plotW) == 898 && KeystoneLinePick.SlotX(false, plotW) + KeystoneLinePick.SlotW <= plotW - 28
+                && KeystoneLinePick.EntryLabelRight(plotW) < KeystoneLinePick.SlotX(true, plotW) && KeystoneLinePick.SlotX(true, plotW) - KeystoneLinePick.EntryLabelRight(plotW) <= 8,
+                "🫥 13i + TP / + SL slots sit at the line's right end before the ✕, the label ends just left of them");
+            Check(!KeystoneLinePick.EntryHovered(true, false, 400, 200, lineY, plotW, null, null) && !KeystoneLinePick.EntryHovered(false, false, 400, lineY, lineY, plotW, null, null),
+                "🫥 13i not hovered (mouse elsewhere / outside the chart) = no label");
+            Check(KeystoneLinePick.EntryHovered(true, false, 200, lineY + 6, lineY, plotW, null, null) && KeystoneLinePick.EntryHovered(true, false, 960, lineY + 2, lineY, plotW, null, null),
+                "🫥 13i the mouse on the entry line (anywhere along it, the ✕ too) = hovered");
+            Check(KeystoneLinePick.EntryHovered(true, false, 900, 560, lineY, plotW, "PINTARGET", null) && KeystoneLinePick.EntryHovered(true, false, 900, 320, lineY, plotW, "ESTOP", null) && !KeystoneLinePick.EntryHovered(true, false, 900, 560, lineY, plotW, "ORDER:0", null),
+                "🫥 13i the 13e hover on the position's own pins / pills = hovered (hover == the same object); another line's hover is not");
+            double[] shown = { 640, 280, 846, 304 };
+            Check(KeystoneLinePick.EntryHovered(true, false, 700, 284, lineY - 18, plotW, null, shown) && KeystoneLinePick.EntryHovered(true, false, 845, 305, lineY, plotW, null, shown) && !KeystoneLinePick.EntryHovered(true, false, 300, 284, lineY, plotW, null, shown),
+                "🫥 13i grace: moving from the line onto the label (or between it and the pills) keeps it shown; far left of it does not");
+            Check(!KeystoneLinePick.EntryHovered(true, true, 200, lineY, lineY, plotW, "BRACKET", shown), "🫥 13i a drag in progress hides it");
+        }
         Console.WriteLine(failures == 0 ? "ALL REPLAY TRADER TESTS PASSED" : failures + " REPLAY TRADER TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }
