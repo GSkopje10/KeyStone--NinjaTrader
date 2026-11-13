@@ -645,6 +645,12 @@ public static class UiSmokeTest
                             NinjaTrader.Cbi.Account.All.Remove(tptN); nfTm.Fire();
                             Console.WriteLine("      📰 13o NEWS FLATTEN: the TPT funded account protected, the chip \"" + nfTx + "\", no NinjaBroker: OK");
                         }
+                        {   // 🔒 13p: the header's account tiles include the locked-stage boxes (💰 YOURS / TODAY hidden until a funded account is LOCKED), the trailing ones present
+                            all.Clear(); walk(liveWin.Content); var acB = all.OfType<System.Windows.Controls.Border>().FirstOrDefault(b9 => Convert.ToString(b9.Tag) == "live.account.bar"); if (acB == null) throw new Exception("🔒 13p: no account bar"); var vbA = acB.Child as System.Windows.Controls.Viewbox; if (vbA != null) walk(vbA.Child); var tiles = all.OfType<System.Windows.Controls.Border>().Where(b9 => Convert.ToString(b9.Tag).StartsWith("acct.tile.")).ToDictionary(b9 => Convert.ToString(b9.Tag).Substring(10), b9 => b9);
+                            foreach (var k9 in new[] { "EQ", "BACK", "BLOW", "BUF", "LOCK", "YOURS", "TODAY", "TRADE" }) if (!tiles.ContainsKey(k9)) throw new Exception("🔒 13p: header tile missing " + k9);
+                            if (tiles["YOURS"].Visibility == System.Windows.Visibility.Visible || tiles["TODAY"].Visibility == System.Windows.Visibility.Visible) throw new Exception("🔒 13p: YOURS / TODAY shown without a locked funded account");
+                            Console.WriteLine("      🔒 13p LOCKED STAGE: the 8 header tiles built, YOURS / TODAY hidden before the lock: OK");
+                        }
                         {   // 🧾 BUILD 11t: EXECUTIONS = the per-account trade journal from NinjaTrader's executions (the user's TPT funded day): account selector,
                             // iterations with their real fees (not gross − realized), the legs + the snapshot on a click, the day file — nothing sent
                             var tpt = new NinjaTrader.Cbi.Account { Name = "TAKEPROFITPRO382305483", Connection = new object() }; tpt.StubValues[NinjaTrader.Cbi.AccountItem.NetLiquidation] = 51680; tpt.StubValues[NinjaTrader.Cbi.AccountItem.RealizedProfitLoss] = 357.75; tpt.StubValues[NinjaTrader.Cbi.AccountItem.GrossRealizedProfitLoss] = 1725.50;

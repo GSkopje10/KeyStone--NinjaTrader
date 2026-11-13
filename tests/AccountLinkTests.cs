@@ -887,6 +887,22 @@ public static class AccountLinkTests
             }
             KeystoneNtLockout.Clear();
         }
+        // ================= 🔒 13p LOCKED FUNDED STAGE: static floor, BUFFER + 💰 YOURS, no peak / to-lock boxes (display only) =================
+        {
+            Check(!KeystoneLockedStage.IsLocked(true, 48374, 50000, null) && KeystoneLockedStage.IsLocked(true, 50000, 50000, null) && !KeystoneLockedStage.IsLocked(false, 50000, 50000, null),
+                "🔒 the lock = the existing rule: funded and the trailing floor ≥ the start balance (an eval never)");
+            string saved = KeystoneLockedStage.SaveValue(new DateTime(2026, 11, 13));
+            Check(KeystoneLockedStage.IsLocked(true, 48000, 50000, saved) && !KeystoneLockedStage.IsLocked(true, 48000, 50000, ""), "🔒 persisted (pk.locked.<account>): it stays LOCKED after a restart even when the floor reads lower", saved);
+            var lt = KeystoneLockedStage.Tiles(true); var tt = KeystoneLockedStage.Tiles(false);
+            Check(!lt.Contains("BACK") && !lt.Contains("LOCK") && lt.Contains("BLOW") && lt.Contains("BUF") && lt.Contains("YOURS") && lt.Contains("TODAY") && lt.Contains("EQ") && lt.Contains("TRADE")
+                && tt.Contains("BACK") && tt.Contains("LOCK") && !tt.Contains("YOURS") && !tt.Contains("TODAY"), "🔒 tiles: locked = EQUITY • FLOOR • BUFFER • YOURS • TODAY • OPEN (no TO BEST / TO LOCK); before the lock unchanged", string.Join(",", lt));
+            double fl = KeystoneLockedStage.StaticFloor(49980, 50000);
+            Check(fl == 50000 && KeystoneLockedStage.Buffer(52374, fl) == 2374 && KeystoneLockedStage.Yours(52374, fl, 2000) == 374 && KeystoneLockedStage.YoursText(374) == "+$374",
+                "🔒 the user's screenshot: equity $52,374 → floor $50,000, BUFFER $2,374, YOURS +$374");
+            Check(KeystoneLockedStage.YoursText(KeystoneLockedStage.Yours(51700, 50000, 2000)) == "−$300 under the lock line" && KeystoneLockedStage.IsLocked(true, 50000, 50000, saved),
+                "🔒 an equity dip below the lock line: \"−$300 under the lock line\", still LOCKED");
+            Check(KeystoneLockedStage.Title("TAKE PROFIT TRADER", "50K", 50000) == "🛡 TAKE PROFIT TRADER • FUNDED 50K • 🔒 LOCKED — STATIC FLOOR $50,000", "🔒 the account line", KeystoneLockedStage.Title("TAKE PROFIT TRADER", "50K", 50000));
+        }
         // ================= 📰 13o NEWS FLATTEN: TPT FUNDED accounts closed 5 min before red-folder news, no new entries until 2 min after (closes / cancels only) =================
         {
             KeystoneNewsFlatten.Clear(); var nyNowT = new DateTime(2026, 10, 6, 8, 0, 0); KeystoneNewsFlatten.NyClock = () => nyNowT;
