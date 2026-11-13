@@ -1175,6 +1175,69 @@ public static class UiSmokeTest
                         }
                         finally { lp("CANCELALL"); lp("ADOPT " + wasH[0] + "," + wasH[1]); lp("SET " + fieldsH); lp("5,5"); }
                     }
+                    {   /* 🖐 13j (user, ● LIVE TRADING, build 13i: "when I try to move the stop loss / take profit the interface disappears and brings me to my other windows … I can't drag
+                           up and down, I have to remove it and place it again"): a real DOWN / MOVE / UP on an EXISTING stop / target — its label or its line — moves it (the SL / TP
+                           field = the existing readBracket → SetBracket path); a CLICK opens the ✏ price box INSIDE the chart (13i: a separate topmost Window placed in physical pixels that
+                           closed itself on Deactivated — the next press handed the front to another program); a ✕ acts only on its RELEASE inside it (13i: the stop's question opened
+                           on the PRESS); the chart's mouse never opens a window / moves / minimizes the KeyStone window */
+                        var lp = (Func<string, string>)F("studioLinePick"); var ic = System.Globalization.CultureInfo.InvariantCulture;
+                        var hitO = ((Func<object>)F("studioActiveHit"))(); if (hitO == null) throw new Exception("🖐 13j no chart mouse layer");
+                        var tm = hitO.GetType().GetMethod("TestMouse"); Action<string, double, double> mouse = (evJ, mxJ, myJ) => tm.Invoke(hitO, new object[] { evJ, mxJ, myJ });
+                        Func<string, string, double[]> boxOf = (lst, code) => { var it = lst.Split(';').LastOrDefault(x => x.StartsWith(code + ":box@")); return it == null ? null : it.Substring(it.IndexOf('@') + 1).Split(',').Select(v => double.Parse(v, ic)).ToArray(); };
+                        Func<string, string, double[]> lineOf = (lst, code) => { var it = lst.Split(';').LastOrDefault(x => x.StartsWith(code + ":line@")); return it == null ? null : it.Substring(it.IndexOf('@') + 1).Split(',').Select(v => v == "-" ? double.NaN : double.Parse(v, ic)).ToArray(); };
+                        Func<int[]> wc = () => new[] { System.Windows.Window.TestDialogs, System.Windows.Window.TestShows, System.Windows.Window.TestDragMoves };
+                        Func<int[], string> wd = w0 => { var w1 = wc(); return "dialogs +" + (w1[0] - w0[0]) + " windows +" + (w1[1] - w0[1]) + " dragmove +" + (w1[2] - w0[2]); };
+                        const string none = "dialogs +0 windows +0 dragmove +0"; Func<string> editor = () => { try { return lp("EDITOR"); } catch { return "(no EDITOR hook)"; } };
+                        var stateJ = bt.WindowState; string fieldsJ = lp("FIELDS"); var wasJ = lp("ADOPT 0,0").Split(',');
+                        try
+                        {
+                            var logJ = new List<string>();
+                            foreach (var side in new[] { 1, -1 })
+                            foreach (var how in new[] { "label", "line" })
+                            foreach (var leg in new[] { "STOP", "TARGET" })
+                            {
+                                lp("CANCELALL"); lp("ADOPT " + side + ",PRICE"); lp("SET 8|16"); lp("5,5"); string LJ = lp("LIST");
+                                var bJ = boxOf(LJ, leg); var lnJ = lineOf(LJ, leg); if (bJ == null || lnJ == null) throw new Exception("🖐 13j the " + leg + " needs a label box + a line: " + LJ);
+                                double xJ = how == "label" ? (bJ[0] + bJ[2]) / 2 : lnJ[1] + (lnJ[2] - lnJ[1]) * 0.3, yJ = how == "label" ? (bJ[1] + bJ[3]) / 2 : lnJ[0];
+                                string hvJ = lp(xJ.ToString("0.##", ic) + "," + yJ.ToString("0.##", ic)); if (hvJ.Split('|')[1] != leg) throw new Exception("🖐 13j the press point must grab the " + leg + ": " + hvJ);
+                                var cJ = wc(); string fJ0 = lp("FIELDS"); double dyJ = (leg == "STOP" ? 1 : -1) * side * 24;   /* away from the price: the stop further away, the target further out */
+                                mouse("DOWN", xJ, yJ); string dDown = wd(cJ); mouse("MOVE", xJ, yJ + dyJ / 3); mouse("MOVE", xJ, yJ + dyJ); mouse("UP", xJ, yJ + dyJ);
+                                string fJ1 = lp("FIELDS"); int ixJ = leg == "STOP" ? 0 : 1; double vJ0 = double.Parse(fJ0.Split('|')[ixJ], ic), vJ1 = double.Parse(fJ1.Split('|')[ixJ], ic);
+                                string rowJ = (side > 0 ? "LONG " : "SHORT ") + leg + " by its " + how + " → " + fJ0 + " ⇒ " + fJ1 + " • on the press: " + dDown + " • in all: " + wd(cJ);
+                                if (wd(cJ) != none || bt.WindowState != stateJ) throw new Exception("🖐 13j a drag of the existing " + leg + " opened a window / dialog / moved the window: " + rowJ);
+                                if (!(vJ1 > vJ0 + 1)) throw new Exception("🖐 13j dragging the existing " + leg + " must move it further out: " + rowJ);
+                                logJ.Add(rowJ);
+                            }
+                            // a CLICK on the stop (no move) = the ✏ price box INSIDE the chart (no window); the next press closes it and drags at once; ✓ sets a typed price
+                            lp("CANCELALL"); lp("ADOPT 1,PRICE"); lp("SET 8|16"); lp("5,5"); string Lc = lp("LIST"); var bs = boxOf(Lc, "STOP"); double sxc = (bs[0] + bs[2]) / 2, syc = (bs[1] + bs[3]) / 2;
+                            var c1 = wc(); mouse("DOWN", sxc, syc); mouse("UP", sxc, syc);
+                            var eds = FindAll<System.Windows.Controls.Border>(bt.Content).Where(x => Convert.ToString(x.Tag) == "price.edit").ToList();
+                            if (wd(c1) != none || editor() != "open" || eds.Count != 1) throw new Exception("🖐 13j a click on the stop must open the ✏ price box INSIDE the chart (no window): " + wd(c1) + " • editor '" + editor() + "' × " + eds.Count);
+                            mouse("DOWN", sxc, syc); mouse("MOVE", sxc, syc + 10); mouse("MOVE", sxc, syc + 30); mouse("UP", sxc, syc + 30);
+                            string fc = lp("FIELDS"); if (editor() != "" || FindAll<System.Windows.Controls.Border>(bt.Content).Any(x => Convert.ToString(x.Tag) == "price.edit") || !(double.Parse(fc.Split('|')[0], ic) > 9) || wd(c1) != none)
+                                throw new Exception("🖐 13j the press after a click must close the price box and drag the stop: editor '" + editor() + "' • fields " + fc + " • " + wd(c1));
+                            var pxS = double.Parse(lp("ADOPT 1,PRICE").Split(',')[2], ic) - 12; lp("SET 8|16"); lp("5,5"); mouse("DOWN", sxc, syc); mouse("UP", sxc, syc);
+                            var boxT = FindAll<System.Windows.Controls.TextBox>(bt.Content).FirstOrDefault(x => Convert.ToString(x.Tag) == "price.edit.box"); var okB = FindAll<System.Windows.Controls.Button>(bt.Content).FirstOrDefault(x => Convert.ToString(x.Tag) == "price.edit.ok");
+                            if (boxT == null || okB == null) throw new Exception("🖐 13j the ✏ price box needs its field + ✓");
+                            boxT.Text = pxS.ToString("0.00", ic); okB.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                            string fT = lp("FIELDS"); if (fT.Split('|')[0] != "12" || editor() != "") throw new Exception("🖐 13j ✓ in the price box must set the stop 12 pts away (the drag's own placement): " + fT);
+                            // a ✕ acts only on its RELEASE inside it: the leg's ✕ (XSTOP asks — the stand-in's question answers no; XTARGET at once), the axis ✕; pressed then dragged off = nothing
+                            lp("SET 8|16"); lp("5,5"); string Lx = lp("LIST"); var xs = boxOf(Lx, "XSTOP"); var xt = boxOf(Lx, "XTARGET"); if (xs == null || xt == null) throw new Exception("🖐 13j the legs' ✕: " + Lx);
+                            var c2 = wc(); mouse("DOWN", (xs[0] + xs[2]) / 2, (xs[1] + xs[3]) / 2); string onPress = wd(c2); mouse("UP", (xs[0] + xs[2]) / 2, (xs[1] + xs[3]) / 2); string onRel = wd(c2);
+                            if (onPress != none || onRel != "dialogs +1 windows +0 dragmove +0" || lp("FIELDS") != "8|16") throw new Exception("🖐 13j the stop's ✕: nothing on the press, its question on the release (stand-in answer = keep): press " + onPress + " • release " + onRel + " • " + lp("FIELDS"));
+                            mouse("DOWN", (xt[0] + xt[2]) / 2, (xt[1] + xt[3]) / 2); mouse("MOVE", (xt[0] + xt[2]) / 2, (xt[1] + xt[3]) / 2 + 12); mouse("MOVE", (xt[0] + xt[2]) / 2, (xt[1] + xt[3]) / 2 + 24); mouse("UP", (xt[0] + xt[2]) / 2, (xt[1] + xt[3]) / 2 + 24);
+                            if (lp("FIELDS") != "8|16") throw new Exception("🖐 13j a ✕ pressed then dragged off must do nothing: " + lp("FIELDS"));
+                            mouse("DOWN", (xt[0] + xt[2]) / 2, (xt[1] + xt[3]) / 2); mouse("UP", (xt[0] + xt[2]) / 2, (xt[1] + xt[3]) / 2);
+                            if (lp("FIELDS") != "8|0") throw new Exception("🖐 13j a click on the take profit's ✕ removes it: " + lp("FIELDS"));
+                            lp("SET 8|16"); var ax = lp("XBOXES").Split(';').FirstOrDefault(q => q.StartsWith("STOP@")); if (ax == null) throw new Exception("🖐 13j the axis ✕ of the stop: " + lp("XBOXES"));
+                            var av = ax.Substring(5).Split(',').Select(v => double.Parse(v, ic)).ToArray(); var c3 = wc();
+                            mouse("DOWN", (av[0] + av[2]) / 2, (av[1] + av[3]) / 2); string axPress = wd(c3); mouse("UP", (av[0] + av[2]) / 2, (av[1] + av[3]) / 2); string axRel = wd(c3);
+                            if (axPress != none || axRel != "dialogs +1 windows +0 dragmove +0" || bt.WindowState != stateJ) throw new Exception("🖐 13j the axis ✕ of the stop: nothing on the press, its question on the release: " + axPress + " • " + axRel);
+                            foreach (var l0 in logJ) Console.WriteLine("      🖐 " + l0);
+                            Console.WriteLine("      🖐 13j: a click = the ✏ price box inside the chart (no window), the next press drags at once, ✓ sets the price; ✕ = on the release inside it only (the stop asks then), pressed + dragged off = nothing");
+                        }
+                        finally { lp("CANCELALL"); lp("ADOPT " + wasJ[0] + "," + wasJ[1]); lp("SET " + fieldsJ); lp("5,5"); }
+                    }
                     var desk = (Func<string, string>)F("studioOfDesk"); if (desk == null) throw new Exception("no ORDERFLOW desk hook");
                     {   /* 🧼 11y (user: "I will stick to my candlestick strategies"): the 📈 CHART view shows NO order flow by default (decision, toasts, setup lines, zones, events, battle map) */
                         string chL = ((Func<string, string>)F("studioLayerBar"))("LIST"); foreach (var ck in new[] { "DECISION=off", "TOAST=off", "SETUP=off", "ZONES=off", "EVENTS=off", "PROF=off" }) if (!chL.Contains(ck)) throw new Exception("🧼 the CHART view's order flow must be OFF by default: " + chL);
@@ -1265,6 +1328,34 @@ public static class UiSmokeTest
                             if (FindAll<System.Windows.Controls.TextBlock>(cvP).Any(t9 => (t9.Text ?? "").Contains("buyer failed"))) throw new Exception("🎯 opposite failed prints must be ONE ⚖ pill, not two contradicting ones");
                             if (nPill == 0) throw new Exception("🎯 no event pill drawn in the studio's right gutter");
                             Console.WriteLine("      🎯 event pills in the right column: " + nPill + " drawn, none over a candle, ring ≤ 8 px");
+                        }
+                        {   /* 🧼 13j (user: "SIMPLE is checked but it didn't clear the other settings within that were checked" — event pills, big prints, zone boxes still on the chart in SIMPLE):
+                               ONE gate (KeystoneOfShow): with EVERY chip ON, 🧼 SIMPLE draws none of the hidden layers on either view; 🔬 DETAILED = exactly the chips again; the ⚙ list greys them */
+                            var lbG = (Func<string, string>)F("studioLayerBar"); var ids = new[] { "SETUP", "PROF", "DROW", "EVENTS", "BIGP", "ZONES", "DECISION", "TOAST" };
+                            Func<string, bool> isOn = id => lbG("LIST").Split(';').Contains(id + "=on");
+                            Func<List<string>> hiddenNow = () => plotCv().Children.OfType<System.Windows.FrameworkElement>().Select(x => Convert.ToString(x.Tag)).Where(t0 => t0 == "of.event.pill" || t0.StartsWith("bigp.") || t0 == "of.trap" || t0.StartsWith("of.mark") || t0 == "of.vp" || t0 == "of.drow" || t0 == "of.toast" || t0.StartsWith("of.trademap") || t0 == "of.zonelabel").ToList();
+                            var keepS = new Dictionary<string, Dictionary<string, bool>>();
+                            foreach (var view in new[] { "OF", "CH" })
+                            {
+                                if (view == "CH") desk("CLOSE");
+                                string mode0 = lbG("LIST").Contains("MODE=SIMPLE") ? "SIMPLE" : "DETAILED"; keepS[view] = ids.ToDictionary(id => id, id => isOn(id)); keepS[view]["MODE.SIMPLE"] = mode0 == "SIMPLE";
+                                foreach (var id in ids) if (!isOn(id)) lbG(id);
+                                lbG("DETAILED"); ((Action<int>)F("replayTraderStep"))(0); desk("FAILPRINTS"); var detTags = hiddenNow();
+                                if (view == "OF" && (!detTags.Contains("of.event.pill") || !detTags.Any(t0 => t0.StartsWith("bigp.")))) throw new Exception("🧼 13j 🔬 DETAILED with every chip on must draw the event pills + big prints (ORDERFLOW view): " + string.Join(",", detTags.Distinct()));
+                                lbG("SIMPLE"); ((Action<int>)F("replayTraderStep"))(0); var simTags = hiddenNow();
+                                if (simTags.Count > 0) throw new Exception("🧼 13j " + view + " view: SIMPLE with every chip ON still draws " + string.Join(",", simTags.Distinct()));
+                                if (ids.Any(id => !isOn(id))) throw new Exception("🧼 13j SIMPLE must never change a chip: " + lbG("LIST"));
+                                string gl = lbG("GEARLIST");
+                                if (!gl.Contains("● BIG PRINTS  — hidden by 🧼 SIMPLE[grey]") || !gl.Contains("🧱 EVENTS  — hidden by 🧼 SIMPLE[grey]") || gl.Contains("👀 ZONES  — hidden") || gl.Contains("💡 SETUP  — hidden")) throw new Exception("🧼 13j the ⚙ list must grey the layers SIMPLE hides: " + gl);
+                                lbG("DETAILED"); ((Action<int>)F("replayTraderStep"))(0); var backTags = hiddenNow();
+                                if (view == "OF" && !backTags.SequenceEqual(detTags)) throw new Exception("🧼 13j DETAILED must restore exactly the chips' layers: " + string.Join(",", detTags.Distinct()) + " vs " + string.Join(",", backTags.Distinct()));
+                                if (FindAll<System.Windows.Controls.TextBlock>(plotCv()).Any(t9 => (t9.Text ?? "").Contains("🪤"))) throw new Exception("🩹 13j a 🪤 (a □ on many Windows fonts) is still drawn on the chart");
+                                Console.WriteLine("      🧼 13j " + view + " view, every chip ON: DETAILED draws " + detTags.Count + " order-flow items (" + string.Join(",", detTags.Distinct().Take(6)) + "), SIMPLE draws 0, the ⚙ list greys the hidden ones");
+                                foreach (var id in ids) if (isOn(id) != keepS[view][id]) lbG(id);
+                                if (keepS[view]["MODE.SIMPLE"]) lbG("SIMPLE"); else lbG("DETAILED");
+                                if (view == "CH") desk("OPEN");
+                            }
+                            ((Action<int>)F("replayTraderStep"))(0);
                         }
                         {   /* ● 👁 🗺 13d: big prints (closed minutes, behind the candles, beside the bodies, ONE latest), the layer bar in the HEADER (never on the plot, each chip toggles its key,
                                the ⚙ OVERLAYS ▾ list when narrow), the 🗺 LEVELS tab / NOW line, the in-trade words + add ideas, the CHART's 🗺 NEXT LEVELS chip (OFF by default, ≤ 2 + 2 lines) */
