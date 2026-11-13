@@ -572,7 +572,11 @@ namespace System.Windows.Media.Imaging
 {
     public enum BitmapCacheOption { Default, OnDemand, OnLoad, None }
     [Flags] public enum BitmapCreateOptions { None = 0, PreservePixelFormat = 1, DelayCreation = 2, IgnoreColorProfile = 4, IgnoreImageCache = 8 }
-    public class BitmapSource : System.Windows.Media.ImageSource { public double Width { get { return 1600; } } public double Height { get { return 900; } } public virtual int PixelWidth { get { return 1600; } } public virtual int PixelHeight { get { return 900; } } public virtual void CopyPixels(Array pixels, int stride, int offset) { } public System.Windows.Media.PixelFormat Format { get { return System.Windows.Media.PixelFormats.Bgra32; } } }
+    public class BitmapSource : System.Windows.Media.ImageSource { public double Width { get { return 1600; } } public double Height { get { return 900; } } public virtual int PixelWidth { get { return 1600; } } public virtual int PixelHeight { get { return 900; } } public virtual void CopyPixels(Array pixels, int stride, int offset) { } public System.Windows.Media.PixelFormat Format { get { return System.Windows.Media.PixelFormats.Bgra32; } }
+        /* 13n stand-in: an in-memory bitmap (the graded behind picture) */
+        public static BitmapSource Create(int pixelWidth, int pixelHeight, double dpiX, double dpiY, System.Windows.Media.PixelFormat pixelFormat, BitmapPalette palette, Array pixels, int stride) { return new MemoryBitmap(pixelWidth, pixelHeight); }
+        public void Freeze() { } }
+    public sealed class MemoryBitmap : BitmapSource { readonly int w, h; public MemoryBitmap(int w0, int h0) { w = w0; h = h0; } public override int PixelWidth { get { return w; } } public override int PixelHeight { get { return h; } } }
     public class BitmapPalette { }
     public class FormatConvertedBitmap : BitmapSource
     {   /* 13l stand-in: the converted copy of a picture; CopyPixels fills a mid grey (luma ≈ 0.5) so the contrast guard has something to measure */

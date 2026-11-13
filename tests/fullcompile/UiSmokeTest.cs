@@ -1319,7 +1319,7 @@ public static class UiSmokeTest
                         lookH("BACK"); string back = lookH("STATE"); if (!back.Contains("gallery=0") || !back.Contains(th0) || !back.Contains("look=AURORA")) throw new Exception("🍂 ↺ BACK must restore the look + the chart template: " + back);
                         // 📷 / 🎞 your own files: a missing file = a one-line note, never an exception; a video is muted and paused in 📉 LOW POWER
                         var tmpD = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ks-look-" + Guid.NewGuid().ToString("N")); System.IO.Directory.CreateDirectory(tmpD);
-                        string pic = System.IO.Path.Combine(tmpD, "lake.png"), vid = System.IO.Path.Combine(tmpD, "falls.mp4"); System.IO.File.WriteAllBytes(pic, new byte[4000]); System.IO.File.WriteAllBytes(vid, new byte[4000]);
+                        string pic = System.IO.Path.Combine(tmpD, "lake.png"), vid = System.IO.Path.Combine(tmpD, "falls.mp4"); { var pngB = new byte[4000]; new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }.CopyTo(pngB, 0); System.IO.File.WriteAllBytes(pic, pngB); }   /* 13n: a picture is known by its first bytes */ System.IO.File.WriteAllBytes(vid, new byte[4000]);
                         lookH("FILE " + System.IO.Path.Combine(tmpD, "gone.jpg")); string gm1 = lookH("STATE"); if (!gm1.Contains("the file is gone") || !gm1.Contains("file=;")) throw new Exception("🍂 a missing picture: " + gm1);
                         lookH("FILE " + pic); if (!lookH("STATE").Contains("file=PICTURE")) throw new Exception("🍂 MY PICTURE: " + lookH("STATE"));
                         lookH("SET lowpower=1"); int pz0 = System.Windows.Controls.MediaElement.TestPauses; lookH("FILE " + vid); string vd1 = lookH("STATE");
@@ -1337,7 +1337,7 @@ public static class UiSmokeTest
                            scene UNDER the candles at 5–40 % with the contrast scrim; ✨ optional faint particles behind the candles; 🎨 LOOK first in the template menu + a toolbar button */
                         Func<string, string, string> part = (st, key) => { var it = st.Split(';').FirstOrDefault(x => x.StartsWith(key + "=")); return it == null ? "" : it.Substring(key.Length + 1); };
                         Func<string, string, double> num = (st, key) => double.Parse(part(st, key), System.Globalization.CultureInfo.InvariantCulture);
-                        var tmpL = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ks-look13l-" + Guid.NewGuid().ToString("N")); System.IO.Directory.CreateDirectory(tmpL); string picL = System.IO.Path.Combine(tmpL, "alpine.jpg"); System.IO.File.WriteAllBytes(picL, new byte[4000]);
+                        var tmpL = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ks-look13l-" + Guid.NewGuid().ToString("N")); System.IO.Directory.CreateDirectory(tmpL); string picL = System.IO.Path.Combine(tmpL, "alpine.jpg"); { var jL = new byte[4000]; new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 }.CopyTo(jL, 0); System.IO.File.WriteAllBytes(picL, jL); }   /* 13n: known by its first bytes */
                         lookH("SET place=BEHIND"); lookH("FILE " + picL); string b1 = lookH("BEHIND"); var seg1 = b1.Split('|')[0];
                         if (part(seg1, "vis") != "1" || part(seg1, "under") != "1" || part(seg1, "hit") != "0" || part(seg1, "cvclear") != "1" || part(seg1, "photo") != "1" || part(seg1, "op") != "0.18" || part(seg1, "frozen") != "1" || part(seg1, "cache") != "1") throw new Exception("🖼 a picture BEHIND THE CHART at 18 %: under the canvas, the canvas transparent, one frozen bitmap-cached brush, never hit-testable: " + b1);
                         if (Math.Abs(num(seg1, "efflum") - num(seg1, "bglum")) > KeystoneLookBehind.Tol + 1e-6) throw new Exception("🖼 the contrast guard must keep the plot's luminance near the template's: " + seg1);
@@ -1409,6 +1409,36 @@ public static class UiSmokeTest
                         lookH("SET combo="); lookH("SET scene=MATCH"); lookH("SET place=AROUND"); lookH("SET behindpct=18");
                         if ((int)nbMade.GetValue(null) != made13m) throw new Exception("🎨 13m built a NinjaBroker");
                         Console.WriteLine("      📷 13m: STYLE panel docked (col " + part(p0, "col") + " of " + part(p0, "cols") + ", Auto, cover 0, plot " + part(p0, "plotw") + " px) • " + cl.Count + " combo mini charts, 🍂 FALL first • hover = template + photo BEHIND, leave restores • click / again = back • template rows • ✓ KEEP remembered • Ctrl+Shift+L • ↺ BACK • P/L colours unchanged");
+                    }
+                    {   /* 🖼 13n: YOUR 10 PICTURES BUILT IN (📷 REAL PHOTOS tab first), graded combos BEHIND the chart up to 100 %, 🎚 ADJUST remembered per picture, ✨ PERFECT CONTRAST,
+                           the Scenes folder scanned by CONTENT (sub-folders, .jfif, "x.jpg.jfif"), skip reasons shown — display only, never a NinjaBroker */
+                        Func<string, string, string> part = (st, key) => { var it = st.Split(';').FirstOrDefault(x => x.StartsWith(key + "=")); return it == null ? "" : it.Substring(key.Length + 1); };
+                        int made13n = (int)nbMade.GetValue(null); string dir13 = lookH("DIR"), sub13 = System.IO.Path.Combine(dir13, "gemini " + Guid.NewGuid().ToString("N").Substring(0, 6));
+                        System.IO.Directory.CreateDirectory(sub13); string own13 = System.IO.Path.Combine(sub13, "my shot.jpg.jfif"), bad13 = System.IO.Path.Combine(sub13, "notes.jpg");
+                        { var jb = new byte[3000]; new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 }.CopyTo(jb, 0); System.IO.File.WriteAllBytes(own13, jb); System.IO.File.WriteAllText(bad13, "not a picture"); }
+                        lookH("SET combo="); lookH("SET scene=MATCH"); lookH("SET place=AROUND"); lookH("SET behindpct=18");
+                        if (part(lookH("STATE"), "gallery") != "1") lookH("OPEN");
+                        string sc13 = lookH("SCAN"); string pk13 = lookH("PACK");
+                        if (part(sc13, "present") != "10" || part(pk13, "real") != "10" || part(pk13, "tiles") != KeystoneScenePack.Combos.Length.ToString() || int.Parse(part(pk13, "perfect")) < 10 || part(pk13, "library") != KeystoneLookCatalog.Photos.Length.ToString() || part(pk13, "tab") != "REAL" || part(pk13, "adjust") != "1" || part(pk13, "missing") != "0")
+                            throw new Exception("🖼 13n the 📷 REAL PHOTOS tab first: your 10 built-in pictures (big tiles + their combos + ✨), the photo library, the ADJUST block: " + sc13 + " • " + pk13);
+                        string own = lookH("OWN"); if (!own.Contains("my shot.jpg.jfif:PICTURE") || !own.Contains("notes.jpg:skip")) throw new Exception("🖼 13n the folder scan: a sub-folder, a double extension known by its bytes, a fake .jpg skipped with its reason: " + own);
+                        if (int.Parse(part(lookH("PACK"), "auto")) < 1) throw new Exception("🖼 13n any other picture gets an ✨ AUTO combo tile: " + lookH("PACK"));
+                        lookH("HOVER COMBO:KS-GOLDEN-AVENUE.DUSK"); string h13 = lookH("STATE");
+                        if (part(h13, "look") != "PICTURE" || part(h13, "place") != "BEHIND" || part(h13, "pct") != "90" || part(h13, "theme") != "🖼 Golden Avenue — dusk" || !lookH("BEHIND").Contains("photo=1")) throw new Exception("🖼 13n hover a built-in picture's combo = it BEHIND the chart at 90 % with its template: " + h13 + " • " + lookH("BEHIND"));
+                        lookH("LEAVE"); lookH("CLICK COMBO:KS-GOLDEN-AVENUE.DUSK"); string a13 = lookH("ADJSTATE");
+                        if (part(a13, "combo") != "KS-GOLDEN-AVENUE.DUSK" || part(a13, "behind") != "1" || part(a13, "graded") == "" || part(a13, "kind") != "PICTURE") throw new Exception("🖼 13n click = the graded picture behind the chart (baked once): " + a13);
+                        lookH("ADJ darken=0.2"); lookH("ADJ focusy=0.3"); string a14 = lookH("ADJSTATE"); if (!part(a14, "adj").StartsWith("KS-GOLDEN-AVENUE.DUSK|0.2|") || part(a14, "graded") == part(a13, "graded")) throw new Exception("🖼 13n 🎚 ADJUST changes the baked grade: " + a14);
+                        lookH("KEEP"); var ws13 = System.IO.File.ReadAllText(System.IO.Path.Combine((string)labT.GetMethod("StudioFolder", sfB).Invoke(null, null), "Workspace.txt"));
+                        if (!ws13.Contains("look.bt.adj.KS-GOLDEN-AVENUE=KS-GOLDEN-AVENUE.DUSK|0.2|") || !ws13.Contains("look.bt.combo=KS-GOLDEN-AVENUE.DUSK")) throw new Exception("🖼 13n the ADJUST is remembered per picture and per window");
+                        lookH("OPEN"); lookH("CLICK COMBO:KS-GOLDEN-AVENUE.CLASSIC"); lookH("CLICK COMBO:KS-GOLDEN-AVENUE.DUSK"); if (!part(lookH("ADJSTATE"), "adj").StartsWith("KS-GOLDEN-AVENUE.DUSK|0.2|")) throw new Exception("🖼 13n choosing the picture's combo again brings its ADJUST back: " + lookH("ADJSTATE"));
+                        lookH("PERFECT"); string pf13 = lookH("ADJSTATE"), pt13 = lookH("STATE"); lookH("PERFECT"); string pf14 = lookH("ADJSTATE");
+                        if (!part(pf13, "combo").StartsWith("PERFECT:KS-GOLDEN-AVENUE") || !part(pt13, "theme").StartsWith("✨ ") || part(pf13, "graded") != part(pf14, "graded")) throw new Exception("🖼 13n ✨ PERFECT CONTRAST = a solved combo + its template, the same twice: " + pf13 + " • " + pt13);
+                        if (lookH("TAB COMBOS") != "tab=COMBOS" || lookH("TAB REAL") != "tab=REAL") throw new Exception("🖼 13n the STYLE panel's tabs switch");
+                        string autoT = lookH("TILES").Split(',').FirstOrDefault(x => x.StartsWith("COMBO:AUTO:")); if (autoT == null) throw new Exception("🖼 13n no ✨ auto tile: " + lookH("TILES"));
+                        lookH("CLICK " + autoT); string au13 = lookH("ADJSTATE"); if (!part(au13, "combo").StartsWith("AUTO:") || part(au13, "behind") != "1" || part(lookH("STATE"), "place") != "BEHIND") throw new Exception("🖼 13n your own picture goes BEHIND the chart graded (the 13m bug: it stayed AROUND, a ≤ 8 % veil): " + au13);
+                        lookH("BACK"); try { System.IO.Directory.Delete(sub13, true); } catch { }
+                        if ((int)nbMade.GetValue(null) != made13n) throw new Exception("🖼 13n built a NinjaBroker");
+                        Console.WriteLine("      🖼 13n: 📷 REAL PHOTOS tab (10 built-in pictures, " + KeystoneScenePack.Combos.Length + " tuned combos, " + part(pk13, "library") + " library photos) • behind at 90 % graded • 🎚 ADJUST remembered per picture • ✨ PERFECT idempotent • folder scan: sub-folder + x.jpg.jfif + skip reason • own picture BEHIND graded");
                     }
                     var desk = (Func<string, string>)F("studioOfDesk"); if (desk == null) throw new Exception("no ORDERFLOW desk hook");
                     {   /* 🧼 11y (user: "I will stick to my candlestick strategies"): the 📈 CHART view shows NO order flow by default (decision, toasts, setup lines, zones, events, battle map) */
