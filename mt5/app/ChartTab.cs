@@ -822,7 +822,7 @@ namespace KeystoneMT5
                     b.DragOver += (o, e) => { e.Effects = e.Data.GetDataPresent("spx-sym") ? DragDropEffects.Move : DragDropEffects.None; b.BorderBrush = Gold; e.Handled = true; };
                     b.DragLeave += delegate { b.BorderBrush = on ? Cyan : Tint(Cyan, 90); };
                     b.Drop += (o, e) => { var from = e.Data.GetData("spx-sym") as string; b.BorderBrush = on ? Cyan : Tint(Cyan, 90); if (from == null || from == s0) return; MoveSym(from, s0, e.GetPosition(b).X > b.ActualWidth / 2); e.Handled = true; };
-                    b.ToolTip = hasPos ? "you have tickets on " + sy + " • P/L " + Signed(cpl, s.Account.Currency) : sy; if (hasPos && !on) b.Foreground = cpl >= 0 ? Green : Red; symChips.Children.Add(b);
+                    b.ToolTip = hasPos ? "you have tickets on " + sy + " • P/L " + Signed(cpl, s.Account.Currency) : sy; if (hasPos && !on) b.Foreground = Tones.Of(cpl) > 0 ? Green : Tones.Of(cpl) < 0 ? Red : Text; symChips.Children.Add(b);
                 }
             }
             string chipIt = ""; Tuple<double, double, double> chipTt = null; try { if (chipLabs.Count > 0) chipTt = IterTotal(s, out chipIt); } catch { }
@@ -897,8 +897,8 @@ namespace KeystoneMT5
             double pl = ps.Sum(x => x.Profit + x.Swap), bl = ps.Where(x => x.Dir > 0).Sum(x => x.Lots), sl = ps.Where(x => x.Dir < 0).Sum(x => x.Lots); int nb = ps.Count(x => x.Dir > 0), ns = ps.Count(x => x.Dir < 0);
             symPlCap.Text = sym + " • P/L of this instrument"; symPlVal.Text = ps.Count == 0 ? "no ticket" : Signed(pl, cur); symPlVal.Foreground = ps.Count == 0 ? Muted : pl > 0 ? Green : pl < 0 ? Red : Text;
             double bp = ps.Where(x => x.Dir > 0).Sum(x => x.Profit + x.Swap), spp = ps.Where(x => x.Dir < 0).Sum(x => x.Profit + x.Swap); bool both = nb > 0 && ns > 0;
-            symBuy.Item1.Visibility = nb > 0 ? Visibility.Visible : Visibility.Hidden; symBuy.Item2.Text = "▲ BUY  " + nb + " ticket" + (nb == 1 ? "" : "s") + (both && bl > sl ? "  ★" : ""); symBuy.Item3.Text = bl.ToString("0.00", IC) + " lots  " + Signed(bp, cur); symBuy.Item3.Foreground = bp >= 0 ? Green : Red;
-            symSell.Item1.Visibility = ns > 0 ? Visibility.Visible : Visibility.Hidden; symSell.Item2.Text = "▼ SELL  " + ns + " ticket" + (ns == 1 ? "" : "s") + (both && sl > bl ? "  ★" : ""); symSell.Item3.Text = sl.ToString("0.00", IC) + " lots  " + Signed(spp, cur); symSell.Item3.Foreground = spp >= 0 ? Green : Red;
+            symBuy.Item1.Visibility = nb > 0 ? Visibility.Visible : Visibility.Hidden; symBuy.Item2.Text = "▲ BUY  " + nb + " ticket" + (nb == 1 ? "" : "s") + (both && bl > sl ? "  ★" : ""); symBuy.Item3.Text = bl.ToString("0.00", IC) + " lots  " + Signed(bp, cur); symBuy.Item3.Foreground = Tones.Of(bp) > 0 ? Green : Tones.Of(bp) < 0 ? Red : Text;
+            symSell.Item1.Visibility = ns > 0 ? Visibility.Visible : Visibility.Hidden; symSell.Item2.Text = "▼ SELL  " + ns + " ticket" + (ns == 1 ? "" : "s") + (both && sl > bl ? "  ★" : ""); symSell.Item3.Text = sl.ToString("0.00", IC) + " lots  " + Signed(spp, cur); symSell.Item3.Foreground = Tones.Of(spp) > 0 ? Green : Tones.Of(spp) < 0 ? Red : Text;
             symHedge.Item1.Visibility = both ? Visibility.Visible : Visibility.Hidden;
             if (both) { double net = bl - sl; symHedge.Item2.Text = Math.Abs(net) < 1e-9 ? "⇅ HEDGED • even" : "⇅ " + (net > 0 ? "BUYS" : "SELLS") + " +" + Math.Abs(net).ToString("0.00", IC) + " lots heavier"; symHedge.Item3.Text = Math.Abs(net) < 1e-9 ? "fully hedged" : "to even: " + (net > 0 ? "SELL " : "BUY ") + Math.Abs(net).ToString("0.00", IC);
                 symHedge.Item1.ToolTip = sym + ": " + bl.ToString("0.00", IC) + " lots bought vs " + sl.ToString("0.00", IC) + " sold" + (Math.Abs(net) < 1e-9 ? " — fully hedged" : " — the " + (net > 0 ? "buys" : "sells") + " are " + Math.Abs(net).ToString("0.00", IC) + " lots heavier; " + (net > 0 ? "SELL " : "BUY ") + Math.Abs(net).ToString("0.00", IC) + " lots more (or close that much of the " + (net > 0 ? "buys" : "sells") + ") to even it up"); }
@@ -912,7 +912,7 @@ namespace KeystoneMT5
                 FillSymExtra(s, sym, ps, mine ? tt.Item1 : double.NaN, mine ? tt.Item2 : double.NaN, mine ? tt.Item3 : double.NaN, tgt > 0 ? tgt : aset != null ? aset.Target : 0, per, cur);
                 foreach (var cb in closeBtns) cb.Item1.ToolTip = ps.Count == 0 ? "nothing open on " + sym : HedgeAuto.ClosePreview(ps, sym, cb.Item2, mine ? tt.Item1 : pl, tgt, per) + " (asks first)";
             }
-            int sg = ps.Count == 0 ? 0 : pl >= 0 ? 1 : -1; if (sg == symPlSign) return; symPlSign = sg;
+            int sg = ps.Count == 0 ? 0 : Tones.Of(pl); if (sg == symPlSign) return; symPlSign = sg;   // 🎨 09q: the box border by the headline's sign, neutral at 0
             if (sg == 0) { symPlBox.BorderBrush = Line; return; }
             var br = new SolidColorBrush(sg > 0 ? Green.Color : Red.Color); symPlBox.BorderBrush = br;
             br.BeginAnimation(Brush.OpacityProperty, new DoubleAnimation(1, 0.3, TimeSpan.FromMilliseconds(750)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever });
@@ -1194,7 +1194,7 @@ namespace KeystoneMT5
             var ps = s.Positions.Where(x => string.Equals(x.Symbol, p.Sym, StringComparison.OrdinalIgnoreCase)).ToList();
             double bl = ps.Where(x => x.Dir > 0).Sum(x => x.Lots), sl = ps.Where(x => x.Dir < 0).Sum(x => x.Lots), pl = ps.Sum(x => x.Profit + x.Swap);
             panelExpo.Text = ps.Count == 0 ? "no position on " + p.Sym : "▲ " + bl.ToString("0.00", IC) + " lots bought • ▼ " + sl.ToString("0.00", IC) + " sold • net " + (bl - sl).ToString("+0.00;−0.00;0.00", IC) + " • " + Signed(pl, a.Currency);
-            panelExpo.Foreground = ps.Count == 0 ? Muted : pl >= 0 ? Green : Red;
+            panelExpo.Foreground = ps.Count == 0 ? Muted : Tones.Of(pl) > 0 ? Green : Tones.Of(pl) < 0 ? Red : Text;
             sellBtn.Content = "SELL\n" + (q != null ? q.Bid.ToString(f, IC) : ""); buyBtn.Content = "BUY\n" + (q != null ? q.Ask.ToString(f, IC) : "");
             if (fsSell != null && fullStrip.Visibility == Visibility.Visible) { fsSell.Content = "SELL " + (q != null ? q.Bid.ToString(f, IC) : ""); fsBuy.Content = "BUY " + (q != null ? q.Ask.ToString(f, IC) : ""); fsPl.Text = ps.Count == 0 ? "" : Signed(pl, a.Currency); fsPl.Foreground = pl >= 0 ? Green : Red; }
             spreadText.Text = q != null ? q.Spread(p.V.Point).ToString("0", IC) + "\npts" : "";

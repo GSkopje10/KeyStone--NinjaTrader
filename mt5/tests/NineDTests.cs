@@ -40,7 +40,7 @@ public static class NineDTests
         var sl5 = AutoSettings.Model("SAFELIVE", new AutoSettings { Symbol = "XAUUSD" }, 5000);
         Check(Math.Abs(sl5.EntryLots - 0.05) < 1e-9 && Math.Abs(sl5.AddLots - 0.05) < 1e-9 && Math.Abs(sl5.Target - 10) < 1e-9, "🔒 SAFE LIVE on $5,000: 0.05 lot, every hedge 0.05, +$10", sl5.EntryLots + " " + sl5.AddLots + " " + sl5.Target);
         var df = AutoSettings.Model("DEFENDER", new AutoSettings { Symbol = "XAUUSD" }, 10000);
-        Check(df.HedgeSize == "ADVANTAGE" && df.CompressMode == "OFF" && df.MaxDdPct == 0 && df.DayLossPct == 0 && !df.BeClose && df.DangerExit && Math.Abs(df.EntryLots - 0.1) < 1e-9,
+        Check(df.HedgeSize == "ADVANTAGE" && df.CompressMode == "OFF" && df.MaxDdPct == 0 && df.DayLossPct == 0 && df.BeClose /* 09q */ && df.DangerExit && Math.Abs(df.EntryLots - 0.1) < 1e-9,
             "🛡 DEFENDER (still the default) unchanged: lead hedges, no compress, no % limits, breakeven LOCK");
         var ev = AutoSettings.SafeLiveEvidence;
         Check(ev.Contains("$431") && ev.Contains("3 %") && ev.Contains("5 %") && ev.Contains("$1,000") && ev.Contains("0 % and 0 %") && ev.Contains("did NOT grow") && ev.Contains("not part of that sweep"), "🔒 the evidence line quotes the sweep's numbers and says it did not grow the account", ev);

@@ -80,8 +80,8 @@ public static class NineHTests
                 var au = new HedgeAuto(); au.Send = (c, a, l) => sb.Command(c, a); sb.OnTickHook = () => au.Step(sb); au.Check(sb, s); au.Start(sb, s, false); sb.Playing = true; sb.Speed = 250; for (int k = 0; k < 200000 && !sb.Ended; k++) sb.Advance(0.5); return au;
             };
             var na = run(x => x.RadarNoAdd = true); var be = run(x => x.RadarBe = true); var none = run(x => { });
-            Check(na.Story.Any(x => x.Item2.Contains("⚠ RADAR → NO ADD-ON")) && na.Trades.Count(t => t.Why.StartsWith("ADD-ON")) < none.Trades.Count(t => t.Why.StartsWith("ADD-ON")) && be.Story.Any(x => x.Item2.Contains("⚠ RADAR → CLOSE AT THE NEXT BREAKEVEN")),
-                "⚠ the options act only when ticked: NO MORE ADD-ONS skips the hedges above the level (" + na.Trades.Count(t => t.Why.StartsWith("ADD-ON")) + " add-ons vs " + none.Trades.Count(t => t.Why.StartsWith("ADD-ON")) + "); CLOSE AT THE NEXT BREAKEVEN arms itself", "");
+            Check(na.Story.Any(x => x.Item2.Contains("⚠ RADAR → NO ADD-ON")) && na.Iterations.Max(x => x.AddOns) < none.Iterations.Max(x => x.AddOns) /* 09q: per basket — the 🔐 breakeven lock now unlocks on the break, so the runs no longer share the same baskets and the plain trade count can tie */ && be.Story.Any(x => x.Item2.Contains("⚠ RADAR → CLOSE AT THE NEXT BREAKEVEN")),
+                "⚠ the options act only when ticked: NO MORE ADD-ONS skips the hedges above the level (at most " + na.Iterations.Max(x => x.AddOns) + " add-ons in a basket vs " + none.Iterations.Max(x => x.AddOns) + "); CLOSE AT THE NEXT BREAKEVEN arms itself", "");
             RadarModel.Default = model;
         }
         {   // the RACE lanes: experimental, built from MY SETTINGS

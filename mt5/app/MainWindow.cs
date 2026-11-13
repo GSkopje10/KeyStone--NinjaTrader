@@ -18,7 +18,8 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-11-13p";   // 09p: ⏰ NO NEW TRADES BEFORE THE 17:00 NY CLOSE (DEFENDER: 45 min) • 🌙 close at the close only if ≥ breakeven (optional) • ⭐ 13p RECOMMENDED (RISK GUARD + ⏰) • 💵 DEMO costs per account • 09o: 🪜 2ND-SWING HEDGE (a hedge trigger: in drawdown the hedge at the break of the 2nd swing low / high after the entry, the flip back at the last swing; LEAD stays the default) • 09n: 🚑 STEP IN (the iteration handed to a trend-stacking manager when a basket is deep; simulated = may blow, MT5 = opt-in, typed STEP IN)
+        public const string Build13qNews = "🔐 BREAKEVEN PROFIT now CLOSES ALL at the keep level — LOCK stays a choice and unlocks on the break • 🎨 red only for negative numbers";
+        public const string Build = "SpasiX • BUILD 2026-11-13q";   // 09q: 🔐 BREAKEVEN PROFIT CLOSES ALL at the keep level by default (user's request; a basket already frozen at net 0 in profit is banked) • the LOCK choice is unlocked by the price (LEAD / LIFT) + truthful UNLOCK labels • 🎨 red only for negative values (EQUITY green when positive). 09p: ⏰ NO NEW TRADES BEFORE THE 17:00 NY CLOSE (DEFENDER: 45 min) • 🌙 close at the close only if ≥ breakeven (optional) • ⭐ 13p RECOMMENDED (RISK GUARD + ⏰) • 💵 DEMO costs per account • 09o: 🪜 2ND-SWING HEDGE (a hedge trigger: in drawdown the hedge at the break of the 2nd swing low / high after the entry, the flip back at the last swing; LEAD stays the default) • 09n: 🚑 STEP IN (the iteration handed to a trend-stacking manager when a basket is deep; simulated = may blow, MT5 = opt-in, typed STEP IN)
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -38,7 +39,7 @@ namespace KeystoneMT5
         FrameworkElement headerEl, tabBarEl; Grid rootGrid;
         TextBlock connText, acLogin, acName, acRest, modeText; Border connPill, acPrivate, modeBadge; readonly Dictionary<string, Tuple<TextBlock, TextBlock, Border>> cards = new Dictionary<string, Tuple<TextBlock, TextBlock, Border>>();
         StackPanel clockRow; readonly List<Tuple<string, TextBlock, TextBlock, Border, string>> clocks = new List<Tuple<string, TextBlock, TextBlock, Border, string>>();
-        Border eqFill, modeBanner; TextBlock iterSub; TextBlock modeBannerText; DropShadowEffect plGlow, eqGlow; int plSign = 9, eqSign = 9; StackPanel setupSteps; TextBlock setupStatus; Button streamBtn;
+        Border eqFill, modeBanner; TextBlock iterSub; TextBlock modeBannerText; DropShadowEffect plGlow, eqGlow, itGlow; int plSign = 9, eqSign = 9, itSign = 9; TextBlock eqSub; StackPanel setupSteps; TextBlock setupStatus; Button streamBtn;
 
         // the app's own settings (%AppData%\SpasiX\MT5\settings.txt) and drawings (drawings.txt)
         public static string Dir { get { return DataDir.Root; } }   // F:\SpasiX\MT5 when there is an F: drive (DataDir.cs)
@@ -192,11 +193,11 @@ namespace KeystoneMT5
                 var val = new TextBlock { Text = "—", Foreground = Text, FontSize = k == "ITER TOTAL" ? 22 : big ? 27 : eq ? 22 : 17, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono };
                 var sp = new StackPanel(); sp.Children.Add(cap); sp.Children.Add(val);
                 if (k == "ITER TOTAL") { iterSub = new TextBlock { Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.SemiBold, FontFamily = Sx.Mono }; sp.Children.Add(iterSub); }   // 09d: the math stays visible under the number
+                if (k == "EQUITY") { eqSub = new TextBlock { Foreground = Red, FontSize = 10, FontWeight = FontWeights.SemiBold, FontFamily = Sx.Mono, Visibility = Visibility.Collapsed }; sp.Children.Add(eqSub); }   // 🎨 09q: "open −$x" (red, small) when the equity is under the balance — never a red box
                 if (k == "EQUITY") { var track = new Grid { Height = 4, Width = 108, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 3, 0, 0) }; track.Children.Add(new Border { CornerRadius = new CornerRadius(2), Background = Line }); eqFill = new Border { CornerRadius = new CornerRadius(2), Background = Green, HorizontalAlignment = HorizontalAlignment.Left, Width = 0 }; track.Children.Add(eqFill); sp.Children.Add(track); }
                 var bd = new Border { Background = big || eq ? (Brush)Sx.CardGrad : Card, CornerRadius = new CornerRadius(big || eq ? 12 : 10), Padding = big || eq ? new Thickness(12, 3, 14, 4) : new Thickness(10, 4, 10, 5), Margin = new Thickness(0, 0, big || eq ? 10 : 7, 0), MinWidth = big ? 190 : eq ? 160 : 108, BorderBrush = eq ? Cyan : Line, BorderThickness = new Thickness(big || eq ? 2.4 : 1), Child = sp };
                 row.Children.Add(bd); cards[k] = Tuple.Create(cap, val, bd);
-                if (big) plGlow = new DropShadowEffect { ShadowDepth = 0, BlurRadius = 16, Opacity = 0, Color = Sx.C("#2EE59D") };
-                if (big) bd.Effect = plGlow;
+                if (big) { var gl = new DropShadowEffect { ShadowDepth = 0, BlurRadius = 16, Opacity = 0, Color = Sx.C("#2EE59D") }; bd.Effect = gl; if (k == "OPEN P/L") plGlow = gl; else itGlow = gl; }   // 🎨 09q: each big box glows by ITS OWN sign (the IF CLOSED NOW box used to glow with the open P/L's red)
                 if (eq) { eqGlow = new DropShadowEffect { ShadowDepth = 0, BlurRadius = 14, Opacity = 0.5, Color = Cyan.Color }; bd.Effect = eqGlow; }
             }
             cards["TODAY"].Item3.ToolTip = "today (the server's day): the closed trades after commission and swap + what is open now";
@@ -346,22 +347,35 @@ namespace KeystoneMT5
             }
         }
         // the OPEN P/L card: big, its border pulses green / red while tickets are open
-        // the EQUITY card: a bold border, green when the equity is at or above the balance, red under it, slowly pulsing
+        // the EQUITY card: a bold border, slowly pulsing — 🎨 09q (user's rule): green when the equity is positive, red ONLY when it is negative (never
+        // "under the balance": that is the small red "open −$x" line under the number), neutral at 0
         void PaintEq(double equity, double balance)
         {
-            int sg = equity >= balance - 1e-6 ? 1 : -1; if (sg == eqSign || eqGlow == null) return; eqSign = sg; var bd = cards["EQUITY"].Item3;
+            if (eqSub != null) { var bb = Tones.BelowBalance(equity, balance); eqSub.Text = bb; eqSub.Visibility = bb == "" ? Visibility.Collapsed : Visibility.Visible; }
+            int sg = Tones.Equity(equity, balance); if (sg == eqSign || eqGlow == null) return; eqSign = sg; var bd = cards["EQUITY"].Item3;
+            if (sg == 0) { bd.BorderBrush = Cyan; eqGlow.BeginAnimation(DropShadowEffect.OpacityProperty, null); eqGlow.Color = Cyan.Color; eqGlow.Opacity = 0.5; return; }
             var col = sg > 0 ? Green.Color : Red.Color; var br = new SolidColorBrush(col); bd.BorderBrush = br; eqGlow.Color = col;
             br.BeginAnimation(Brush.OpacityProperty, new DoubleAnimation(1, 0.45, TimeSpan.FromMilliseconds(1200)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() });
             eqGlow.BeginAnimation(DropShadowEffect.OpacityProperty, new DoubleAnimation(0.75, 0.2, TimeSpan.FromMilliseconds(1200)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() });
         }
         void PaintPl(double fl, bool open)
         {
-            int sg = !open ? 0 : fl >= 0 ? 1 : -1; var bd = cards["OPEN P/L"].Item3; if (sg == plSign) return; plSign = sg;
+            int sg = !open ? 0 : Tones.Of(fl); var bd = cards["OPEN P/L"].Item3; if (sg == plSign) return; plSign = sg;
             if (sg == 0) { bd.BorderBrush = Line; plGlow.BeginAnimation(DropShadowEffect.OpacityProperty, null); plGlow.Opacity = 0; return; }
             var col = sg > 0 ? Green.Color : Red.Color; var br = new SolidColorBrush(col); bd.BorderBrush = br; plGlow.Color = col;
             var pulse = new DoubleAnimation(1, 0.3, TimeSpan.FromMilliseconds(750)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() };
             br.BeginAnimation(Brush.OpacityProperty, pulse); plGlow.BeginAnimation(DropShadowEffect.OpacityProperty, new DoubleAnimation(0.85, 0.15, TimeSpan.FromMilliseconds(750)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() });
         }
+        // 🎨 09q: the IF CLOSED NOW box: its border / glow follow ITS total (green > 0, red < 0, neutral at 0 / no iteration)
+        void PaintIt(double total)
+        {
+            int sg = Tones.Of(total); var bd = cards["ITER TOTAL"].Item3; if (sg == itSign || itGlow == null) return; itSign = sg;
+            if (sg == 0) { bd.BorderBrush = Line; itGlow.BeginAnimation(DropShadowEffect.OpacityProperty, null); itGlow.Opacity = 0; return; }
+            var col = sg > 0 ? Green.Color : Red.Color; var br = new SolidColorBrush(col); bd.BorderBrush = br; itGlow.Color = col;
+            br.BeginAnimation(Brush.OpacityProperty, new DoubleAnimation(1, 0.3, TimeSpan.FromMilliseconds(750)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() });
+            itGlow.BeginAnimation(DropShadowEffect.OpacityProperty, new DoubleAnimation(0.85, 0.15, TimeSpan.FromMilliseconds(750)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() });
+        }
+        static SolidColorBrush ToneBrush(double v, SolidColorBrush zero) { int t = Tones.Of(v); return t > 0 ? Green : t < 0 ? Red : zero; }
         // ---------------------------------------------------------------- the refresh
         void Refresh()
         {
@@ -391,15 +405,15 @@ namespace KeystoneMT5
                 bool any = Sim ? sim.Spec != null : true;
                 if (any)
                 {
-                    card("BALANCE", Money(a.Balance, cur), Text); card("EQUITY", Money(a.Equity, cur), a.Equity >= a.Balance ? Green : Red); PaintEq(a.Equity, a.Balance);
-                    double fl = a.Floating; card("OPEN P/L", Signed(fl, cur), fl >= 0 ? (fl > 0 ? Green : Text) : Red); PaintPl(fl, s.Positions.Count > 0);
+                    card("BALANCE", Money(a.Balance, cur), Text); card("EQUITY", Money(a.Equity, cur), ToneBrush(a.Equity, Text)); PaintEq(a.Equity, a.Balance);
+                    double fl = a.Floating; card("OPEN P/L", Signed(fl, cur), ToneBrush(fl, Text)); PaintPl(fl, s.Positions.Count > 0);
                     { var itc = cards["ITER TOTAL"]; string isym; var tt = IterTotal(s, out isym); itc.Item3.Visibility = double.IsNaN(tt.Item1) ? Visibility.Collapsed : Visibility.Visible;
-                      if (iterSub != null && double.IsNaN(tt.Item1)) iterSub.Text = ""; if (!double.IsNaN(tt.Item1)) { card("ITER TOTAL", Signed(tt.Item1, cur), tt.Item1 > 0 ? Green : tt.Item1 < 0 ? Red : Text); itc.Item1.Text = "IF CLOSED NOW • THIS ITERATION (closed + open)"; if (iterSub != null) iterSub.Text = "open " + Signed(tt.Item2, cur) + " + closed " + Signed(tt.Item3, cur); itc.Item3.ToolTip = "open " + Signed(tt.Item2, cur) + " · closed legs " + Signed(tt.Item3, cur) + " = " + Signed(tt.Item1, cur) + "\nthe open tickets on " + isym + " (" + Signed(tt.Item2, cur) + ") + what this " + (auto != null && auto.Current != null ? "iteration (#" + auto.Current.N + ")" : "set of trades (since its first open ticket)") + " already closed (" + Signed(tt.Item3, cur) + "), commissions and swap included"; } }
+                      if (iterSub != null && double.IsNaN(tt.Item1)) iterSub.Text = ""; if (!double.IsNaN(tt.Item1)) { card("ITER TOTAL", Signed(tt.Item1, cur), ToneBrush(tt.Item1, Text)); PaintIt(tt.Item1); itc.Item1.Text = "IF CLOSED NOW • THIS ITERATION (closed + open)"; if (iterSub != null) iterSub.Text = "open " + Signed(tt.Item2, cur) + " + closed " + Signed(tt.Item3, cur); itc.Item3.ToolTip = "open " + Signed(tt.Item2, cur) + " · closed legs " + Signed(tt.Item3, cur) + " = " + Signed(tt.Item1, cur) + "\nthe open tickets on " + isym + " (" + Signed(tt.Item2, cur) + ") + what this " + (auto != null && auto.Current != null ? "iteration (#" + auto.Current.N + ")" : "set of trades (since its first open ticket)") + " already closed (" + Signed(tt.Item3, cur) + "), commissions and swap included"; } }
                     card("FREE MARGIN", Money(a.FreeMargin, cur), a.FreeMargin < 0 ? Red : Text);
-                    double today = TodayClosed(s) + fl; card("TODAY", Signed(today, cur), today > 0 ? Green : today < 0 ? Red : Text); cards["TODAY"].Item3.BorderBrush = today > 0 ? Tint(Green, 100) : today < 0 ? Tint(Red, 120) : Line;
-                    card("MARGIN LEVEL", a.Margin > 0 ? a.MarginLevel.ToString("N0", IC) + " %" : "—", a.Margin <= 0 ? Muted : a.MarginLevel < 200 ? Red : a.MarginLevel < 500 ? Gold : Green);
+                    double today = TodayClosed(s) + fl; card("TODAY", Signed(today, cur), ToneBrush(today, Text)); cards["TODAY"].Item3.BorderBrush = Tones.Of(today) > 0 ? Tint(Green, 100) : Tones.Of(today) < 0 ? Tint(Red, 120) : Line;
+                    card("MARGIN LEVEL", a.Margin > 0 ? a.MarginLevel.ToString("N0", IC) + " %" : "—", a.Margin <= 0 ? Muted : a.MarginLevel < 200 ? Orange : a.MarginLevel < 500 ? Gold : Green);   // 🎨 09q: a margin % is not a loss — orange / gold warn, never red
                     cards["MARGIN LEVEL"].Item3.ToolTip = "margin used " + Money(a.Margin, cur) + " • free margin " + Money(a.FreeMargin, cur) + (a.Margin > 0 ? " • margin level " + a.MarginLevel.ToString("N0", IC) + " %" : "");
-                    double ratio = a.Balance > 0 ? Math.Max(0, Math.Min(1, a.Equity / a.Balance)) : 0; eqFill.Width = 108 * ratio; eqFill.Background = ratio >= 0.9 ? Green : ratio >= 0.6 ? Gold : Red;
+                    double ratio = a.Balance > 0 ? Math.Max(0, Math.Min(1, a.Equity / a.Balance)) : 0; eqFill.Width = 108 * ratio; eqFill.Background = a.Equity > 0 ? Green : Red;   // 🎨 09q: a positive equity is green (how much of the balance = the bar's length)
                     cards["EQUITY"].Item3.ToolTip = "equity = " + (100 * (a.Balance > 0 ? a.Equity / a.Balance : 0)).ToString("0", IC) + " % of the balance";
                 }
                 ReadResults(s);

@@ -38,6 +38,11 @@ namespace KeystoneMT5
             if (Get("auto.safe04." + AKey, "") != "1" && !AutoWasRunning()) { var sym0 = aset.Symbol; aset = AutoSettings.Model("SAFE", aset); if (sym0 != "") aset.Symbol = sym0; Put(AKey, aset.Save()); Put("auto.safe04." + AKey, "1"); }   // an older build kept one DEMO key for every broker: it is the fallback if (aset.Symbol == "" || aset.Symbol == "XAUUSD") { try { if (panes.Count > 0 && !string.IsNullOrEmpty(Act.Sym)) aset.Symbol = Act.Sym; } catch { } }
             auto.Send = AutoSend; auto.NewsNear = AutoNews; auto.OnSignalDone = AutoSignalSave;
             auto.OnTell = (n, l) => AutoAppend("story", "#" + n + "  " + l);
+            if (Get("auto.mig13q." + AKey, "") != "1")
+            {   // 🔐 09q (user's request, ONCE per account's settings): BREAKEVEN PROFIT closes instead of locking — LOCK stays a choice in ⚙ SETTINGS
+                Put("auto.mig13q." + AKey, "1"); var m13 = AutoSettings.Mig13q(aset);
+                if (m13 != null) { aset = m13; Put(AKey, aset.Save()); auto.TellNow(AutoSettings.Mig13qText); }
+            }
             auto.OnPath = line => AutoAppend("paths", line);
             auto.OnManualAction += (it, legs, banked, at, what) => Dispatcher.BeginInvoke(new Action(() => AutoWhatIfNew(it, legs, banked, at, what)));
             // 🚑 STEP IN (09n): the basket at the trigger (the automation alone is replayed from it), every episode journaled (…-stepin.csv)
@@ -231,8 +236,8 @@ namespace KeystoneMT5
                 simple.Children.Add(new Border { Child = cw, BorderBrush = Tint(Amber, 90), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 4, 10, 2), Margin = new Thickness(0, 2, 12, 6) });
             }
                 simple.Children.Add(ADrop("beclose", "🔐 AT THE BREAKEVEN LINE", () => !aset.BeLock ? "OFF" : aset.BeClose ? "CLOSE ALL (bank it)" : "LOCK (hedge to even)", () => new List<Mi> {
-                    new Mi { Text = "CLOSE ALL — the basket came back from ≥ " + aset.BeLockAt.ToString("0", IC) + " % of the target to " + aset.BeLockKeep.ToString("0", IC) + " %: close everything at the market, the profit is banked, the iteration ends", Do = () => { aset.BeLock = true; aset.BeClose = true; } },
-                    new Mi { Text = "LOCK — there: buys = sells (the profit is frozen, NOT closed), then the normal hedges go on (the 6-year replays of 07e preferred it; the Nov weeks did not)", Do = () => { aset.BeLock = true; aset.BeClose = false; } },
+                    new Mi { Text = "CLOSE ALL — the basket came back from ≥ " + aset.BeLockAt.ToString("0", IC) + " % of the target to " + aset.BeLockKeep.ToString("0", IC) + " %: close everything at the market, the profit is banked, the iteration ends (the default — 09q, your request: no hours in a frozen lock)", Do = () => { aset.BeLock = true; aset.BeClose = true; } },
+                    new Mi { Text = "LOCK — there: buys = sells (the profit is frozen, NOT closed) until the price breaks the lock range — then your UNLOCK (LEAD / LIFT) goes on with the break", Do = () => { aset.BeLock = true; aset.BeClose = false; } },
                     new Mi { Text = "OFF — no breakeven line, only the target", Do = () => { aset.BeLock = false; } } }));
                 { var cmp = ADrop("compress", "🧹 COMPRESS HEDGES", () => aset.CompressMode == "ALWAYS" ? "ALWAYS" : aset.CompressMode == "ROLLOVER" ? "BEFORE THE ROLLOVER" : "OFF", () => new List<Mi> {
                     new Mi { Text = "OFF — every hedge leg stays open until the basket closes (pays swap on every lot, both sides)", Do = () => aset.CompressMode = "OFF" },
@@ -676,7 +681,7 @@ namespace KeystoneMT5
         void AutoWhatsNew()
         {
             string k = "seen.build." + AKey; if (Get(k, "") == Build) return; Put(k, Build);
-            if (k != "") { auto.Note("🆕 " + Build + " installed — nothing to confirm (✔ TURN ON ALL THE PROTECTIONS stays in the STRATEGY menu)"); return; }   // user's request: no window at start, nothing blocks the screen
+            if (k != "") { auto.Note("🆕 " + Build + " installed (" + Build13qNews + ") — nothing to confirm (✔ TURN ON ALL THE PROTECTIONS stays in the STRATEGY menu)"); return; }   // user's request: no window at start, nothing blocks the screen
             var a = auto.Running ? auto.Set : aset; Func<bool, string> on = b => b ? "✅ ON" : "⬜ OFF";
             string txt = "NEW IN THIS VERSION\n"
                 + "• 🔄 RECOVERED EXIT (optional): a basket that went deep and came back near breakeven closes there\n"
@@ -707,12 +712,17 @@ namespace KeystoneMT5
         TextBlock aSizePrev; string aSizePrevSig = "";
         // screens.sh only (SPASIX_TEST_ITER=1, with fakemt5.py FAKE_CLOSED=1): the open XAUUSD tickets as an open iteration (as after ⏸ STOP ON MANUAL), so the
         // ITERATIONS row / the banner / the strip show a basket with closed legs — its total is the 🎯 guard's own count of the fake deals; sends nothing
-        bool aTestIter;
+        bool aTestIter, aTestLock;
         void AutoTestIter()
         {
             List<Mt5Position> ps; lock (broker.State.Gate) ps = broker.State.Positions.Where(p => string.Equals(p.Symbol, "XAUUSD", StringComparison.OrdinalIgnoreCase)).ToList(); if (ps.Count == 0) return;
             aTestIter = true; var f = ps.OrderBy(p => p.Time).First(); var it = new AutoIteration { N = auto.Iterations.Count + 1, Start = f.Time, FirstDir = f.Side, Buys = ps.Count(p => p.Dir > 0), Sells = ps.Count(p => p.Dir < 0), Manual = true };
             auto.Iterations.Add(it); auto.Current = it; auto.Version++;
+            if (Environment.GetEnvironmentVariable("SPASIX_TEST_LOCK") == "1")
+            {   // screens.sh only (09q): the #30 picture — a 🔐 lock whose LOW the bid already passed by 5.42 (display; the automation is not running, nothing is sent)
+                double bid; lock (broker.State.Gate) { Mt5Quote q; bid = broker.State.Quotes.TryGetValue("XAUUSD", out q) ? q.Bid : double.NaN; } if (double.IsNaN(bid)) return;
+                aTestLock = true; auto.Locked = true; auto.LockLo = Math.Round(bid + 5.52, 2); auto.LockHi = Math.Round(bid + 7.92, 2); auto.LockFarLo = auto.LockLo - 0.1; auto.LockFarHi = auto.LockHi + 0.1; auto.UnlockWhy = "";
+            }
             if (Environment.GetEnvironmentVariable("SPASIX_TEST_STEPIN") == "1")
             {   // screens.sh only: the banner as it looks with 🚑 STEP IN active (the manager's own text; nothing is sent — the automation is not running)
                 double bal; lock (broker.State.Gate) bal = broker.State.Account.Balance; var v = new StepInView { Pos = ps, Total = -812.3, Target = 16, Bid = 3986, Ask = 3986.2, PerPrice = 100, Balance = bal, Equity = bal - 812, Simulated = Virtual, Now = it.Start.AddMinutes(150) };
@@ -869,7 +879,7 @@ namespace KeystoneMT5
                 g.Add(new ChartGuide { Kind = d.Kind, P1 = d.P1, P2 = d.P2, From = d.From, Label = d.Label, Dash = d.Dash, Color = col(st.Key), Blink = st.Level == "STRONG" && (d.Kind != "LINE" || st.Key == "BOX" || st.Key == "B") });
             int nSetups = g.Count;   // what is above = the strategy's 🎯 setups (their own CHART GUIDES toggle); below = the automation's own preview
             // the BREAK levels the automation enters on (and hedges on): the swing high / low, or the high / low of the last N candles
-            bool inTrade = ga.Running && ga.Current != null;
+            bool inTrade = (ga.Running || (aTestLock && ga == auto)) && ga.Current != null;   // aTestLock: screens.sh only
             if (inTrade)
             {   // in a trade: what happens next and how far away — the take profit, the next hedge, the stop
                 double bid = double.NaN; lock (broker.State.Gate) { Mt5Quote q; if (broker.State.Quotes.TryGetValue(sym, out q)) bid = q.Bid; }
@@ -882,8 +892,8 @@ namespace KeystoneMT5
                     string nUp = HedgeAuto.UnlockNeeds(1, s.RiskGuard, s.ProfitUnlock, totL, ga.TrendNow, !double.IsNaN(ga.Ema200)), nDn = HedgeAuto.UnlockNeeds(-1, s.RiskGuard, s.ProfitUnlock, totL, ga.TrendNow, !double.IsNaN(ga.Ema200));
                     g.Add(new ChartGuide { P1 = ga.LockHi, Color = Violet, Dash = true, Core = true, Label = "🔒 LOCK RANGE high " + ga.LockHi.ToString("0.00", IC) });
                     g.Add(new ChartGuide { P1 = ga.LockLo, Color = Violet, Dash = true, Core = true, Label = "🔒 LOCK RANGE low " + ga.LockLo.ToString("0.00", IC) });
-                    g.Add(new ChartGuide { P1 = fHi, Color = Violet, Dash = false, Blink = !double.IsNaN(bid) && fHi - bid < 0.3 && nUp.IndexOf('(') < 0, Core = true, Label = "🔓 UNLOCK ▲ above " + fHi.ToString("0.00", IC) + nUp + away(fHi) });
-                    g.Add(new ChartGuide { P1 = fLo, Color = Violet, Dash = false, Blink = !double.IsNaN(bid) && bid - fLo < 0.3 && nDn.IndexOf('(') < 0, Core = true, Label = "🔓 UNLOCK ▼ below " + fLo.ToString("0.00", IC) + nDn + away(fLo) });
+                    g.Add(new ChartGuide { P1 = fHi, Color = Violet, Dash = false, Blink = !double.IsNaN(bid) && fHi - bid < 0.3 && nUp.IndexOf('(') < 0, Core = true, Label = HedgeAuto.UnlockLabel(1, fHi, bid, nUp, ga.UnlockWhy) });
+                    g.Add(new ChartGuide { P1 = fLo, Color = Violet, Dash = false, Blink = !double.IsNaN(bid) && bid - fLo < 0.3 && nDn.IndexOf('(') < 0, Core = true, Label = HedgeAuto.UnlockLabel(-1, fLo, bid, nDn, ga.UnlockWhy) });
                 }
                 if (s.HedgeMode != "NONE" && s.HedgeMode != "SIGNAL" && !double.IsNaN(ga.HedgeLevel) && !ga.Locked)
                 {
@@ -943,7 +953,7 @@ namespace KeystoneMT5
             }
             // ⏳ the banner at the top of the chart: ALWAYS says what the automation waits for, where and how far (it blinks faster when close)
             try { var bn = AutoBanner(sym, ga, s, shadow, inTrade); if (bn != null) g.Add(bn); } catch { }
-            if (!HedgeAuto.ShowPreview(ga.Running, shadow, AutoWasRunning())) g = g.Take(nSetups).ToList(); g.AddRange(swPrev);   // user's request: AUTO OFF → no "it would enter" chip, no break / hedge lines on the chart
+            if (!aTestLock && !HedgeAuto.ShowPreview(ga.Running, shadow, AutoWasRunning())) g = g.Take(nSetups).ToList();   /* aTestLock: screens.sh only */ g.AddRange(swPrev);   // user's request: AUTO OFF → no "it would enter" chip, no break / hedge lines on the chart
             g.RemoveAll(x => double.IsNaN(x.P1) && x.Kind != "BANNER"); if (!ga.Running) { foreach (var gx in g) if (gx.Label != "" && gx.Kind != "BANNER" && gx.Kind != "COUNT") gx.Label += "  (AUTO OFF)"; } else if (shadow) { foreach (var gx in g) if (gx.Label != "" && gx.Kind != "BANNER" && gx.Kind != "COUNT") gx.Label = "🏁 " + gx.Label; } try { ManualGuides(sym, g); } catch { } aGuides = g; aGuideSym = sym;
         }
         int aSeenIter;
@@ -1003,7 +1013,11 @@ namespace KeystoneMT5
                 txt += SwapText(ga, s);
                 if (!double.IsNaN(ga.BeLockPx)) txt += "  •  🔐 BE armed: a return to " + P2(ga.BeLockPx) + (s.BeClose ? " closes all at +$" + (s.Target * s.BeLockKeep / 100).ToString("0.##", IC) + ", then waits for the next entry" : " LOCKS the basket at +$" + (s.Target * s.BeLockKeep / 100).ToString("0.##", IC) + " (buys = sells) and waits for a break");
                 if (s.HedgeMode == "LADDER" && !double.IsNaN(ga.LadderHi)) { txt += "  •  🪜 next BUY > " + P2(ga.LadderHi) + dist(ga.LadderHi) + " • next SELL < " + P2(ga.LadderLo) + dist(ga.LadderLo); fast |= !double.IsNaN(bid) && (ga.LadderHi - bid < 0.4 || bid - ga.LadderLo < 0.4); }
-                else if (ga.Locked && !double.IsNaN(ga.LockHi)) txt += "  •  🔒 LOCKED " + P2(ga.LockLo) + " – " + P2(ga.LockHi);
+                else if (ga.Locked && !double.IsNaN(ga.LockHi))
+                {   // 09q: the banner names the real unlock prices and, once one is passed, what it still waits for
+                    double fHiB = double.IsNaN(ga.LockFarHi) ? ga.LockHi : ga.LockFarHi, fLoB = double.IsNaN(ga.LockFarLo) ? ga.LockLo : ga.LockFarLo, totB = ga.LiveTotal().Item1;
+                    txt += HedgeAuto.LockBannerText(ga.LockLo, ga.LockHi, fLoB, fHiB, bid, HedgeAuto.UnlockNeeds(1, s.RiskGuard, s.ProfitUnlock, totB, ga.TrendNow, !double.IsNaN(ga.Ema200)), HedgeAuto.UnlockNeeds(-1, s.RiskGuard, s.ProfitUnlock, totB, ga.TrendNow, !double.IsNaN(ga.Ema200)), ga.UnlockWhy);
+                }
                 else if (s.HedgeMode != "NONE" && s.HedgeMode != "SIGNAL" && !double.IsNaN(ga.HedgeLevel)) { txt += "  •  🛡 next hedge " + (ga.LastDir > 0 ? "SELL " : "BUY ") + (double.IsNaN(ga.NextHedgeLots) ? "" : ga.NextHedgeLots.ToString("0.##", IC) + " ") + "@ " + P2(ga.HedgeLevel) + dist(ga.HedgeLevel); fast |= !double.IsNaN(bid) && Math.Abs(ga.HedgeLevel - bid) < 0.5; }
                 col = ga.BasketTotal >= 0 ? Green : Amber;
                 if (ga.Danger > 0 || ga.DangerWhy != "")
@@ -1740,7 +1754,7 @@ namespace KeystoneMT5
             aCard.BorderBrush = on ? Green : Line;
             {   // 🧮 09l: the big number = the TOTAL if closed now (as the header), the open part small under it
                 var lt = auto.LiveTotal(); bool has = it != null && !it.Done; var hl = HedgeAuto.BannerHeadline(double.IsNaN(lt.Item1) ? auto.Basket : lt.Item1, double.IsNaN(lt.Item1) ? auto.Basket : lt.Item2, double.IsNaN(lt.Item1) ? 0 : lt.Item3, s.Target, v => Signed(v, "USD"));
-                aBasketCap.Text = hl.Item1; aBasket.Text = has ? hl.Item2 : "—"; aBasket.Foreground = !has ? Muted : hl.Item4 >= 0 ? Green : Red; aBasketSub.Text = has ? hl.Item3 : ""; aBasketSub.Visibility = has ? Visibility.Visible : Visibility.Collapsed;
+                aBasketCap.Text = hl.Item1; aBasket.Text = has ? hl.Item2 : "—"; aBasket.Foreground = !has ? Muted : Tones.Of(hl.Item4) > 0 ? Green : Tones.Of(hl.Item4) < 0 ? Red : Text;   // 🎨 09q: red only below 0 aBasketSub.Text = has ? hl.Item3 : ""; aBasketSub.Visibility = has ? Visibility.Visible : Visibility.Collapsed;
             }
             aInfo.Text = on ? (it != null ? "iteration #" + it.N + " since " + it.Start.ToString("dd MMM HH:mm:ss", IC) + "  •  " + it.Buys + " buys (" + it.BuyLots.ToString("0.##", IC) + ") / " + it.Sells + " sells (" + it.SellLots.ToString("0.##", IC) + ")  •  " + it.AddOns + " add-ons  •  max drawdown " + it.MaxDd.ToString("0.00", IC) + (s.MaxDrawdown > 0 ? " (limit −$" + s.MaxDrawdown.ToString("0.##", IC) + ")" : " (no limit)")
                     : auto.Phase == "PAUSE" ? "pause until " + auto.PauseUntil.ToString("HH:mm:ss", IC) + " (" + Math.Max(0, (auto.PauseUntil - auto.Now).TotalSeconds).ToString("0", IC) + " s)" : auto.Phase == "FIRST" ? "the first " + s.FirstDir + " goes now" : "waiting for the next " + auto.WaitingFor() + (auto.Blocked != "" && !auto.Blocked.StartsWith("⏰") ? "  •  NOT NOW: " + auto.Blocked : ""))
@@ -1806,9 +1820,9 @@ namespace KeystoneMT5
             aTiles.Content = Sx.Tiles(
                 Tuple.Create("ITERATIONS", st.Done + (auto.Current != null ? " (+1 open)" : ""), Text),
                 Tuple.Create("WON / LOST", st.Wins + " / " + st.Losses + (st.Done > 0 ? "  " + (100.0 * st.Wins / st.Done).ToString("0", IC) + "%" : ""), st.Losses > 0 ? Amber : Green),
-                Tuple.Create("STREAK NOW / BEST", (st.Streak > 0 ? st.Streak + " won" : st.Streak < 0 ? -st.Streak + " lost" : "—") + " / " + st.BestStreak, st.Streak >= 0 ? Green : Red),
-                Tuple.Create("TODAY", Signed(tdNet, "USD") + (tdBase > 0 ? "  " + (100 * tdNet / tdBase).ToString("+0.00;−0.00", IC) + "%" : ""), tdNet >= 0 ? Green : Red),
-                Tuple.Create("NET (AFTER COMMISSION)", Signed(st.Net, "USD"), st.Net >= 0 ? Green : Red),
+                Tuple.Create("STREAK NOW / BEST", (st.Streak > 0 ? st.Streak + " won" : st.Streak < 0 ? -st.Streak + " lost" : "—") + " / " + st.BestStreak, st.Streak > 0 ? Green : st.Streak < 0 ? Red : Text),
+                Tuple.Create("TODAY", Signed(tdNet, "USD") + (tdBase > 0 ? "  " + (100 * tdNet / tdBase).ToString("+0.00;−0.00", IC) + "%" : ""), Tones.Of(tdNet) > 0 ? Green : Tones.Of(tdNet) < 0 ? Red : Text),
+                Tuple.Create("NET (AFTER COMMISSION)", Signed(st.Net, "USD"), Tones.Of(st.Net) > 0 ? Green : Tones.Of(st.Net) < 0 ? Red : Text),
                 Tuple.Create("COMMISSIONS", Signed(-auto.Iterations.Sum(x => x.Fees), "USD") + "  (today " + Signed(-auto.Iterations.Where(x => x.Start.Date == today).Sum(x => x.Fees), "USD") + ")", Amber),
                 Tuple.Create("WORST DRAWDOWN", st.WorstDd.ToString("0.00", IC), st.WorstDd < 0 ? Red : Muted),
                 Tuple.Create("BUYS / SELLS / ADD-ONS", st.Buys + " / " + st.Sells + " / " + st.AddOns, Violet),
