@@ -17,6 +17,7 @@ public static class BridgeTests
         if (Environment.GetEnvironmentVariable("ONLY09L") == "1") return NineLTests.Main14() == 0 ? 0 : 1;   // the 09l block alone
         if (Environment.GetEnvironmentVariable("ONLY09O") == "1") return NineOTests.Main16() == 0 ? 0 : 1;   // the 09o block alone (🪜 2ND-SWING HEDGE)
         if (Environment.GetEnvironmentVariable("ONLY09P") == "1") return NinePTests.Main17() == 0 ? 0 : 1;   // the 09p block alone (⏰ the close, 🌙, ⭐ 13p, 💵 demo costs)
+        if (Environment.GetEnvironmentVariable("ONLY09R") == "1") return NineRTests.Main19() == 0 ? 0 : 1;   // the 13r block alone (⬇ real ticks, 📦 .sxt, 🧭 consult, 💸 withdrawals)
         if (Environment.GetEnvironmentVariable("ONLY09Q") == "1") return NineQTests.Main18() == 0 ? 0 : 1;   // the 09q block alone (🔐 the breakeven lock unlocks, 🎨 colours)
         if (Environment.GetEnvironmentVariable("ONLY09N") == "1") return NineNTests.Main15() == 0 ? 0 : 1;   // the 09n block alone (🚑 STEP IN)
         var br = new Mt5Bridge(47999); br.Start(); Check(br.Problem == "", "the app listens on 127.0.0.1", br.Problem);
@@ -89,6 +90,7 @@ public static class BridgeTests
         fails += NineOTests.Main16();
         fails += NinePTests.Main17();
         fails += NineQTests.Main18();
+        fails += NineRTests.Main19();
         try { TickRecorder.Flush(); System.IO.Directory.Delete(TickRecorder.RootOverride, true); } catch { }
         return fails == 0 ? 0 : 1;
     }

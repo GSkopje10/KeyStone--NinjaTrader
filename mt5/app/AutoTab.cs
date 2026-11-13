@@ -1599,6 +1599,15 @@ namespace KeystoneMT5
             try
             {
                 if (aHist == null && !Sim) AutoLoadHistory();
+                // ⬇ 13r: optionally every DOWNLOADED tick day of the symbol (compact .sxt.gz per month) — the size shown first
+                var tkSym = (auto.Running ? auto.Set : AutoRead()).Symbol; var tkAll = TickExport.Downloaded(tkSym); bool withTicks = false;
+                if (tkAll.Count > 0)
+                {
+                    long raw = TickExport.RawBytes(tkSym, tkAll);
+                    int ch = Sx.Choice(this, "📦 EXPORT FOR CLAUDE", "Include ALL the downloaded tick days of " + tkSym + "?\n" + tkAll.Count + " day(s) (" + tkAll.First().ToString("dd MMM yyyy", IC) + " – " + tkAll.Last().ToString("dd MMM yyyy", IC) + "): about " + (raw / TickExport.PackRatio / 1048576.0).ToString("0.0", IC) + " MB packed (" + (raw / 1048576.0).ToString("0.0", IC) + " MB raw).\nThe last " + ExportTickDays + " iteration days are always in 17-ticks.", null,
+                        new[] { "WITHOUT THEM", "INCLUDE ALL TICK DAYS (≈ " + (raw / TickExport.PackRatio / 1048576.0).ToString("0.0", IC) + " MB)", "CANCEL" }, new[] { Cyan, Violet, Muted });
+                    if (ch < 0 || ch == 2) return; withTicks = ch == 1;
+                }
                 var now = DateTime.Now; var bad = Path.GetInvalidFileNameChars();
                 var id = new string((string.IsNullOrEmpty(aHist) ? (Sim ? "backtest" : "account") : aHist).Select(c => bad.Contains(c) || c == '@' || c == ' ' ? '_' : c).ToArray());
                 var name = "SpasiX-export-" + Mode + "-" + id + "-" + now.ToString("yyyy-MM-dd_HHmm", IC);
@@ -1669,6 +1678,9 @@ namespace KeystoneMT5
                 // 17 🎞 09k: the real ticks (recorded live by SpasiX, or downloaded by the BACKTEST) of the days that had an iteration — the last 10 such days
                 int tickFiles = 0; long tickBytes = 0;
                 try { var tf17 = TickRecorder.ExportDays(s.Symbol, its.SelectMany(x => { var e = x.Done && x.End > x.Start ? x.End : x.Start; var l = new List<DateTime>(); for (var d = x.Start.Date; d <= e.Date && l.Count < 10; d = d.AddDays(1)) l.Add(d); return l; }), Path.Combine(dir, "17-ticks"), ExportTickDays, TickServer()); tickFiles = tf17.Count; tickBytes = tf17.Sum(f => new FileInfo(f).Length); if (tickFiles > 0) files.Add("17-ticks\\ (" + tickFiles + " days)"); } catch { }
+                // 18 ⬇ 13r: every downloaded tick day, one .sxt.gz per month (the format in 18-ticks-all\README.txt; reader mt5/study/SxtReader.cs)
+                int tkMonths = 0; long tkPacked = 0;
+                if (withTicks) try { var sp18 = HistoryStore.LoadSpec(tkSym); var ms18 = TickExport.Build(tkSym, sp18 != null && sp18.Point > 0 ? sp18.Point : 0.01, tkAll); var d18 = Path.Combine(dir, "18-ticks-all"); Directory.CreateDirectory(d18); foreach (var m in ms18) { File.WriteAllBytes(Path.Combine(d18, m.Name), m.Data); tkPacked += m.Data.Length; } File.WriteAllText(Path.Combine(d18, "README.txt"), TickExport.Readme(tkSym, ms18, Build)); tkMonths = ms18.Count; files.Add("18-ticks-all\\ (" + tkMonths + " months)"); } catch (Exception ex18) { Log("📦 18-ticks-all: " + ex18.Message, Red); }
                 // 00 README: what this is and what every file holds
                 var rd0 = new List<string> {
                     "SPASIX EXPORT FOR CLAUDE", "",
@@ -1693,6 +1705,7 @@ namespace KeystoneMT5
                     "  10-hedges.csv       every hedge / lock / unlock: the basket's range, ATR, hedges before it, its best / worst move in the next 30 min, whipsaw = 1",
                     "  17-ticks\\           " + (tickFiles > 0 ? "the REAL TICKS of the last " + tickFiles + " day(s) with an iteration (" + (tickBytes / 1048576.0).ToString("0.0", IC) + " MB before the zip; capped at the newest " + ExportTickDays + " such days to keep the zip reasonable): <SYMBOL>-yyyyMMdd-<server or download>.ticks — recorded live by SpasiX from MT5 (or downloaded by the BACKTEST)" : "(no recorded / downloaded ticks for the iteration days — 🎞 SAVE LIVE TICKS in ⚙ SETUP records them from now on)"),
                     "                      tick format: " + TickRecorder.FormatText,
+                    "  18-ticks-all\\       " + (tkMonths > 0 ? "EVERY downloaded tick day of " + tkSym + ": " + tkMonths + " month file(s) .sxt.gz, " + (tkPacked / 1048576.0).ToString("0.0", IC) + " MB (format: 18-ticks-all\\README.txt, reader mt5/study/SxtReader.cs)" : "(not included — choose INCLUDE ALL TICK DAYS when exporting)"),
                     "  09-race\\            " + (raceFiles > 0 ? "every strategy of the 🏁 RACE: the saved iterations / trades per day + leaderboard.txt" : "(no race saved yet)") };
                 File.WriteAllLines(Path.Combine(dir, "00-README.txt"), rd0);
 
